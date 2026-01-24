@@ -213,6 +213,101 @@ async def tts_post(
     return await tts(text=text, speaker=speaker, language=language, instruct=instruct)
 
 
+import re
+
+def split_text_to_sentences(text: str) -> list:
+    """将文本按标点符号分割成句子"""
+    # 中英文标点
+    pattern = r'([。！？；\n.!?;])'
+    parts = re.split(pattern, text)
+
+    sentences = []
+    current = ""
+    for part in parts:
+        current += part
+        if re.match(pattern, part):
+            if current.strip():
+                sentences.append(current.strip())
+            current = ""
+    if current.strip():
+        sentences.append(current.strip())
+
+    # 如果没有分割出句子，返回整个文本
+    if not sentences:
+        sentences = [text]
+
+    return sentences
+
+
+@app.get("/tts/stream")
+async def tts_stream(
+    text: str = Query(..., description="要合成的文本"),
+    speaker: str = Query("vivian", description="说话人"),
+    language: str = Query("Chinese", description="语言"),
+    instruct: str = Query(None, description="情感指令"),
+):
+    """
+    流式文字转语音 API（SSE）- 按句子分割生成
+
+    返回:
+    - SSE 事件流，每个事件包含一句话的音频
+    - 事件格式: data: {"audio": "base64...", "sample_rate": 24000, "chunk_index": 0, "text": "句子内容"}
+    - 结束事件: data: {"done": true, "total_chunks": N}
+    """
+    import base64
+
+    if model_status["custom"] != "loaded":
+        raise HTTPException(status_code=503, detail={"error": "model_not_loaded", "model": "custom", "status": model_status["custom"]})
+
+    if not text:
+        raise HTTPException(status_code=400, detail="text 参数不能为空")
+
+    if speaker not in SPEAKERS:
+        raise HTTPException(status_code=400, detail=f"不支持的说话人: {speaker}")
+
+    if language not in LANGUAGES:
+        raise HTTPException(status_code=400, detail=f"不支持的语言: {language}")
+
+    async def generate_audio_stream():
+        try:
+            # 发送开始信号
+            yield f"data: {json.dumps({'started': True, 'mode': 'token_streaming'})}\n\n"
+
+            chunk_index = 0
+            for audio_chunk, sr in model_custom.generate_custom_voice_streaming(
+                text=text,
+                language=language,
+                speaker=speaker,
+                instruct=instruct,
+                chunk_size=6,  # 6 tokens ≈ 0.5秒音频，首包更快
+            ):
+                # 将音频编码为 base64
+                audio_buffer = io.BytesIO()
+                sf.write(audio_buffer, audio_chunk, sr, format='WAV')
+                audio_buffer.seek(0)
+                audio_base64 = base64.b64encode(audio_buffer.read()).decode('utf-8')
+
+                yield f"data: {json.dumps({'audio': audio_base64, 'sample_rate': sr, 'chunk_index': chunk_index})}\n\n"
+                chunk_index += 1
+
+            # 发送结束信号
+            yield f"data: {json.dumps({'done': True, 'total_chunks': chunk_index})}\n\n"
+
+        except Exception as e:
+            import traceback
+            yield f"data: {json.dumps({'error': str(e), 'traceback': traceback.format_exc()})}\n\n"
+
+    return StreamingResponse(
+        generate_audio_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
 @app.post("/clone")
 async def voice_clone(
     text: str = Form(..., description="要合成的文本"),

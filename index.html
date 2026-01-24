@@ -150,10 +150,12 @@
             </div>
 
             <!-- 生成按钮 -->
-            <button onclick="generateCustom()" id="btn-custom"
-                class="w-full py-4 bg-accent hover:bg-accent-dark text-white font-semibold rounded-xl transition-all shadow-sm hover:shadow-md">
-                生成语音
-            </button>
+            <div class="flex gap-3">
+                <button onclick="generateCustom()" id="btn-custom"
+                    class="flex-1 py-4 bg-accent hover:bg-accent-dark text-white font-semibold rounded-xl transition-all shadow-sm hover:shadow-md">
+                    生成语音
+                </button>
+            </div>
 
             <!-- 状态和结果 -->
             <div id="status-custom" class="text-center text-sm text-charcoal/60"></div>
@@ -863,6 +865,7 @@
                 btn.textContent = '生成语音';
             }
         }
+
 
         async function generateClone() {
             const text = document.getElementById('text-clone').value.trim();
