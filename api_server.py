@@ -21,7 +21,31 @@ VOICES_DIR.mkdir(exist_ok=True)
 # 全局模型
 model_custom = None  # CustomVoice 模型
 model_clone = None   # Base 模型（用于语音克隆）
+model_design = None  # VoiceDesign 模型
 SAMPLE_RATE = 24000
+
+# 模型加载状态: unloaded / loading / loaded
+model_status = {
+    "custom": "unloaded",
+    "design": "unloaded",
+    "clone": "unloaded",
+}
+
+# 模型配置
+MODEL_CONFIGS = {
+    "custom": {
+        "path": "./models/Qwen3-TTS-1.7B-CustomVoice",
+        "name": "CustomVoice 1.7B",
+    },
+    "design": {
+        "path": "./models/Qwen3-TTS-1.7B-VoiceDesign",
+        "name": "VoiceDesign 1.7B",
+    },
+    "clone": {
+        "path": "./models/Qwen3-TTS-0.6B",
+        "name": "Base 0.6B",
+    },
+}
 
 # 已保存的克隆声音缓存
 saved_voice_prompts = {}
@@ -33,25 +57,63 @@ SPEAKERS = ["aiden", "dylan", "eric", "ono_anna", "ryan", "serena", "sohee", "un
 LANGUAGES = ["Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"]
 
 
-@app.on_event("startup")
-async def load_model():
-    global model_custom, model_clone
+def load_model_sync(model_type: str):
+    """同步加载指定模型"""
+    global model_custom, model_clone, model_design, model_status
 
-    print("正在加载 CustomVoice 模型...")
-    model_custom = Qwen3TTSModel.from_pretrained(
-        "./models/Qwen3-TTS-0.6B-CustomVoice",
-        device_map="cuda:0",
-        dtype=torch.bfloat16,
-    )
-    print("CustomVoice 模型加载完成！")
+    if model_status[model_type] != "unloaded":
+        return
 
-    print("正在加载 Base 模型（语音克隆）...")
-    model_clone = Qwen3TTSModel.from_pretrained(
-        "./models/Qwen3-TTS-0.6B",
-        device_map="cuda:0",
-        dtype=torch.bfloat16,
-    )
-    print("Base 模型加载完成！")
+    model_status[model_type] = "loading"
+    config = MODEL_CONFIGS[model_type]
+    print(f"正在加载 {config['name']} 模型...")
+
+    try:
+        model = Qwen3TTSModel.from_pretrained(
+            config["path"],
+            device_map="cuda:0",
+            dtype=torch.bfloat16,
+        )
+
+        if model_type == "custom":
+            model_custom = model
+        elif model_type == "design":
+            model_design = model
+        elif model_type == "clone":
+            model_clone = model
+
+        model_status[model_type] = "loaded"
+        print(f"{config['name']} 模型加载完成！")
+    except Exception as e:
+        model_status[model_type] = "unloaded"
+        print(f"{config['name']} 模型加载失败: {e}")
+        raise
+
+
+@app.get("/model/status")
+async def get_model_status():
+    """获取所有模型的加载状态"""
+    return {"status": model_status}
+
+
+@app.post("/model/load/{model_type}")
+async def load_model_endpoint(model_type: str):
+    """触发加载指定模型"""
+    if model_type not in MODEL_CONFIGS:
+        raise HTTPException(status_code=400, detail=f"未知的模型类型: {model_type}")
+
+    if model_status[model_type] == "loaded":
+        return {"status": "loaded", "message": "模型已加载"}
+
+    if model_status[model_type] == "loading":
+        return {"status": "loading", "message": "模型正在加载中"}
+
+    # 在后台线程中加载模型
+    import threading
+    thread = threading.Thread(target=load_model_sync, args=(model_type,))
+    thread.start()
+
+    return {"status": "loading", "message": f"开始加载 {MODEL_CONFIGS[model_type]['name']}"}
 
 
 @app.get("/")
@@ -105,6 +167,10 @@ async def tts(
     返回:
     - WAV 音频文件
     """
+    # 检查模型是否加载
+    if model_status["custom"] != "loaded":
+        raise HTTPException(status_code=503, detail={"error": "model_not_loaded", "model": "custom", "status": model_status["custom"]})
+
     if not text:
         raise HTTPException(status_code=400, detail="text 参数不能为空")
 
@@ -166,6 +232,10 @@ async def voice_clone(
     返回:
     - WAV 音频文件（使用克隆的声音）
     """
+    # 检查模型是否加载
+    if model_status["clone"] != "loaded":
+        raise HTTPException(status_code=503, detail={"error": "model_not_loaded", "model": "clone", "status": model_status["clone"]})
+
     if not text:
         raise HTTPException(status_code=400, detail="text 参数不能为空")
 
@@ -212,6 +282,59 @@ async def voice_clone(
         # 清理临时文件
         if temp_file and os.path.exists(temp_file.name):
             os.unlink(temp_file.name)
+
+
+@app.post("/design")
+async def voice_design(
+    text: str = Form(..., description="要合成的文本"),
+    language: str = Form("Chinese", description="语言"),
+    instruct: str = Form(..., description="声音描述，如：低沉沙哑的中年男声"),
+):
+    """
+    声音设计 API
+
+    通过自然语言描述生成特定风格的声音
+
+    参数:
+    - text: 要合成的文本
+    - language: 语言
+    - instruct: 声音描述（必填）
+
+    返回:
+    - WAV 音频文件
+    """
+    # 检查模型是否加载
+    if model_status["design"] != "loaded":
+        raise HTTPException(status_code=503, detail={"error": "model_not_loaded", "model": "design", "status": model_status["design"]})
+
+    if not text:
+        raise HTTPException(status_code=400, detail="text 参数不能为空")
+
+    if not instruct:
+        raise HTTPException(status_code=400, detail="instruct 声音描述不能为空")
+
+    if language not in LANGUAGES:
+        raise HTTPException(status_code=400, detail=f"不支持的语言: {language}。支持: {LANGUAGES}")
+
+    try:
+        wavs, sr = model_design.generate_voice_design(
+            text=text,
+            language=language,
+            instruct=instruct,
+        )
+
+        audio_buffer = io.BytesIO()
+        sf.write(audio_buffer, wavs[0], sr, format='WAV')
+        audio_buffer.seek(0)
+
+        return StreamingResponse(
+            audio_buffer,
+            media_type="audio/wav",
+            headers={"Content-Disposition": "attachment; filename=design_output.wav"}
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/voices")
@@ -315,6 +438,10 @@ async def tts_with_saved_voice(
     """
     使用已保存的克隆声音生成语音
     """
+    # 检查模型是否加载
+    if model_status["clone"] != "loaded":
+        raise HTTPException(status_code=503, detail={"error": "model_not_loaded", "model": "clone", "status": model_status["clone"]})
+
     voice_dir = VOICES_DIR / voice_id
     if not voice_dir.exists():
         raise HTTPException(status_code=404, detail="声音不存在")

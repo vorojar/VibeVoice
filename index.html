@@ -79,6 +79,10 @@
                 class="flex-1 px-6 py-3 rounded-xl font-medium transition-all bg-accent text-white">
                 🎙️ 预设说话人
             </button>
+            <button onclick="switchTab('design')" id="tab-design"
+                class="flex-1 px-6 py-3 rounded-xl font-medium transition-all bg-warm-gray text-charcoal/70 hover:bg-accent/20">
+                🎨 声音设计
+            </button>
             <button onclick="switchTab('clone')" id="tab-clone"
                 class="flex-1 px-6 py-3 rounded-xl font-medium transition-all bg-warm-gray text-charcoal/70 hover:bg-accent/20">
                 🎭 语音克隆
@@ -170,6 +174,81 @@
                     class="px-3 py-1 bg-cream-dark rounded-lg text-sm text-charcoal/70 hover:bg-warm-gray transition-all">英文问候</button>
                 <button onclick="setCustomExample('こんにちは、私はQwenです。', 'ono_anna', 'Japanese')"
                     class="px-3 py-1 bg-cream-dark rounded-lg text-sm text-charcoal/70 hover:bg-warm-gray transition-all">日文问候</button>
+            </div>
+        </div>
+
+        <!-- 声音设计面板 -->
+        <div id="panel-design" class="hidden space-y-5">
+            <!-- 声音描述 -->
+            <div class="bg-white rounded-2xl p-5 shadow-sm border border-warm-gray/50">
+                <h3 class="text-lg font-semibold text-charcoal mb-4 flex items-center gap-2">
+                    <span class="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">🎨</span>
+                    声音描述
+                </h3>
+                <textarea id="instruct-design" rows="3"
+                    class="w-full px-4 py-3 bg-white border border-warm-gray rounded-xl text-charcoal placeholder-charcoal/40 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all resize-none"
+                    placeholder="用自然语言描述你想要的声音，例如：低沉沙哑的中年男声、温柔甜美的少女声..."></textarea>
+                <div class="flex gap-2 flex-wrap mt-3">
+                    <span class="text-xs text-charcoal/50">快速选择：</span>
+                    <button onclick="setDesignExample('低沉沙哑的中年男声，语速偏慢')"
+                        class="px-2 py-1 bg-cream-dark rounded text-xs text-charcoal/70 hover:bg-warm-gray transition-all">成熟男声</button>
+                    <button onclick="setDesignExample('温柔甜美的少女声，音调偏高，语气活泼')"
+                        class="px-2 py-1 bg-cream-dark rounded text-xs text-charcoal/70 hover:bg-warm-gray transition-all">甜美少女</button>
+                    <button onclick="setDesignExample('体现撒娇稚嫩的萝莉女声，音调偏高且起伏明显')"
+                        class="px-2 py-1 bg-cream-dark rounded text-xs text-charcoal/70 hover:bg-warm-gray transition-all">萝莉音</button>
+                    <button onclick="setDesignExample('A deep, authoritative male voice with clear pronunciation')"
+                        class="px-2 py-1 bg-cream-dark rounded text-xs text-charcoal/70 hover:bg-warm-gray transition-all">权威男声</button>
+                    <button onclick="setDesignExample('A cheerful young female voice with a warm, friendly tone')"
+                        class="px-2 py-1 bg-cream-dark rounded text-xs text-charcoal/70 hover:bg-warm-gray transition-all">活泼女声</button>
+                </div>
+            </div>
+
+            <!-- 合成设置 -->
+            <div class="bg-white rounded-2xl p-5 shadow-sm border border-warm-gray/50">
+                <h3 class="text-lg font-semibold text-charcoal mb-4 flex items-center gap-2">
+                    <span class="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">📝</span>
+                    合成设置
+                </h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-charcoal/70 mb-2">要合成的文本</label>
+                        <textarea id="text-design" rows="2"
+                            class="w-full px-4 py-3 bg-white border border-warm-gray rounded-xl text-charcoal placeholder-charcoal/40 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all resize-none"
+                            placeholder="请输入要合成的文本...">你好，我是根据你的描述生成的声音。</textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-charcoal/70 mb-2">语言</label>
+                        <select id="language-design"
+                            class="w-full px-4 py-3 bg-white border border-warm-gray rounded-xl text-charcoal focus:outline-none focus:border-accent transition-all">
+                            <option value="Chinese">中文</option>
+                            <option value="English">English</option>
+                            <option value="Japanese">日本語</option>
+                            <option value="Korean">한국어</option>
+                            <option value="German">Deutsch</option>
+                            <option value="French">Français</option>
+                            <option value="Spanish">Español</option>
+                            <option value="Russian">Русский</option>
+                            <option value="Portuguese">Português</option>
+                            <option value="Italian">Italiano</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 生成按钮 -->
+            <button onclick="generateDesign()" id="btn-design"
+                class="w-full py-4 bg-accent hover:bg-accent-dark text-white font-semibold rounded-xl transition-all shadow-sm hover:shadow-md">
+                生成声音
+            </button>
+
+            <!-- 状态和结果 -->
+            <div id="status-design" class="text-center text-sm text-charcoal/60"></div>
+            <div id="audio-container-design" class="hidden bg-white rounded-2xl p-5 shadow-sm border border-warm-gray/50">
+                <h3 class="text-lg font-semibold text-charcoal mb-3 flex items-center gap-2">
+                    <span class="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">🔊</span>
+                    生成结果
+                </h3>
+                <audio id="audio-design" controls class="w-full"></audio>
             </div>
         </div>
 
@@ -430,6 +509,56 @@
         let savedVoices = [];
         let selectedVoiceId = null;
 
+        // 模型加载状态缓存
+        let modelStatusCache = { custom: 'unloaded', design: 'unloaded', clone: 'unloaded' };
+
+        // 确保模型已加载
+        async function ensureModelLoaded(modelType, statusEl, btnEl) {
+            // 先检查状态
+            const statusRes = await fetch('/model/status');
+            const statusData = await statusRes.json();
+            modelStatusCache = statusData.status;
+
+            if (modelStatusCache[modelType] === 'loaded') {
+                return true;
+            }
+
+            // 触发加载
+            statusEl.textContent = '正在加载模型，请稍候...';
+            statusEl.classList.remove('text-red-500');
+            btnEl.innerHTML = '<span class="spinner"></span> 加载模型中...';
+
+            await fetch(`/model/load/${modelType}`, { method: 'POST' });
+
+            // 轮询等待加载完成
+            let attempts = 0;
+            const maxAttempts = 120; // 最多等待2分钟
+            while (attempts < maxAttempts) {
+                await new Promise(r => setTimeout(r, 1000)); // 每秒检查一次
+                const checkRes = await fetch('/model/status');
+                const checkData = await checkRes.json();
+                modelStatusCache = checkData.status;
+
+                if (modelStatusCache[modelType] === 'loaded') {
+                    statusEl.textContent = '模型加载完成';
+                    return true;
+                } else if (modelStatusCache[modelType] === 'unloaded') {
+                    // 加载失败
+                    statusEl.textContent = '模型加载失败，请刷新页面重试';
+                    statusEl.classList.add('text-red-500');
+                    return false;
+                }
+
+                // 更新进度提示
+                attempts++;
+                statusEl.textContent = `正在加载模型... (${attempts}秒)`;
+            }
+
+            statusEl.textContent = '模型加载超时，请刷新页面重试';
+            statusEl.classList.add('text-red-500');
+            return false;
+        }
+
         // 页面加载
         document.addEventListener('DOMContentLoaded', loadSavedVoices);
 
@@ -547,14 +676,68 @@
         }
 
         function switchTab(tab) {
-            document.getElementById('tab-custom').className = tab === 'custom'
-                ? 'flex-1 px-6 py-3 rounded-xl font-medium transition-all bg-accent text-white'
-                : 'flex-1 px-6 py-3 rounded-xl font-medium transition-all bg-warm-gray text-charcoal/70 hover:bg-accent/20';
-            document.getElementById('tab-clone').className = tab === 'clone'
-                ? 'flex-1 px-6 py-3 rounded-xl font-medium transition-all bg-accent text-white'
-                : 'flex-1 px-6 py-3 rounded-xl font-medium transition-all bg-warm-gray text-charcoal/70 hover:bg-accent/20';
+            const activeClass = 'flex-1 px-6 py-3 rounded-xl font-medium transition-all bg-accent text-white';
+            const inactiveClass = 'flex-1 px-6 py-3 rounded-xl font-medium transition-all bg-warm-gray text-charcoal/70 hover:bg-accent/20';
+            document.getElementById('tab-custom').className = tab === 'custom' ? activeClass : inactiveClass;
+            document.getElementById('tab-design').className = tab === 'design' ? activeClass : inactiveClass;
+            document.getElementById('tab-clone').className = tab === 'clone' ? activeClass : inactiveClass;
             document.getElementById('panel-custom').className = tab === 'custom' ? 'space-y-5' : 'hidden space-y-5';
+            document.getElementById('panel-design').className = tab === 'design' ? 'space-y-5' : 'hidden space-y-5';
             document.getElementById('panel-clone').className = tab === 'clone' ? 'space-y-5' : 'hidden space-y-5';
+        }
+
+        function setDesignExample(instruct) {
+            document.getElementById('instruct-design').value = instruct;
+        }
+
+        async function generateDesign() {
+            const text = document.getElementById('text-design').value.trim();
+            const language = document.getElementById('language-design').value;
+            const instruct = document.getElementById('instruct-design').value.trim();
+            const btn = document.getElementById('btn-design');
+            const status = document.getElementById('status-design');
+            const container = document.getElementById('audio-container-design');
+            const audio = document.getElementById('audio-design');
+
+            if (!instruct) { status.textContent = '请输入声音描述'; status.classList.add('text-red-500'); return; }
+            if (!text) { status.textContent = '请输入要合成的文本'; status.classList.add('text-red-500'); return; }
+
+            btn.disabled = true;
+            status.textContent = '';
+            container.classList.add('hidden');
+
+            // 确保模型已加载
+            const modelReady = await ensureModelLoaded('design', status, btn);
+            if (!modelReady) {
+                btn.disabled = false;
+                btn.textContent = '生成声音';
+                return;
+            }
+
+            btn.innerHTML = '<span class="spinner"></span> 生成中...';
+            status.textContent = '';
+
+            try {
+                const formData = new FormData();
+                formData.append('text', text);
+                formData.append('language', language);
+                formData.append('instruct', instruct);
+
+                const response = await fetch('/design', { method: 'POST', body: formData });
+                if (!response.ok) throw new Error((await response.json()).detail || '生成失败');
+
+                audio.src = URL.createObjectURL(await response.blob());
+                container.classList.remove('hidden');
+                audio.play();
+                status.textContent = '生成成功';
+                status.classList.remove('text-red-500');
+            } catch (error) {
+                status.textContent = '生成失败: ' + error.message;
+                status.classList.add('text-red-500');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '生成声音';
+            }
         }
 
         async function toggleRecording() {
@@ -647,9 +830,19 @@
             if (!text) { status.textContent = '请输入要合成的文本'; status.classList.add('text-red-500'); return; }
 
             btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span> 生成中...';
             status.textContent = '';
             container.classList.add('hidden');
+
+            // 确保模型已加载
+            const modelReady = await ensureModelLoaded('custom', status, btn);
+            if (!modelReady) {
+                btn.disabled = false;
+                btn.textContent = '生成语音';
+                return;
+            }
+
+            btn.innerHTML = '<span class="spinner"></span> 生成中...';
+            status.textContent = '';
 
             try {
                 const params = new URLSearchParams({ text, speaker, language });
@@ -683,7 +876,16 @@
             if (!text) { status.textContent = '请输入要合成的文本'; status.classList.add('text-red-500'); return; }
 
             btn.disabled = true;
+            status.textContent = '';
             container.classList.add('hidden');
+
+            // 确保模型已加载
+            const modelReady = await ensureModelLoaded('clone', status, btn);
+            if (!modelReady) {
+                btn.disabled = false;
+                btn.textContent = '克隆并生成语音';
+                return;
+            }
 
             try {
                 let response;
