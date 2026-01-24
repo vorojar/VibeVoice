@@ -4,6 +4,8 @@ A web application for Text-to-Speech powered by Alibaba's Qwen3-TTS model, featu
 
 基于阿里巴巴 Qwen3-TTS 模型的语音合成 Web 应用，支持预设说话人和语音克隆功能。
 
+![Demo](demo.png)
+
 ---
 
 ## Features / 功能特性
