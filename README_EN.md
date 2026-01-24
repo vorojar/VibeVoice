@@ -61,7 +61,10 @@ pip install -U qwen-tts fastapi uvicorn python-multipart soundfile numpy torch
 pip install -U modelscope
 
 # CustomVoice model (preset speakers)
-modelscope download --model Qwen/Qwen3-TTS-0.6B-CustomVoice --local_dir ./models/Qwen3-TTS-0.6B-CustomVoice
+modelscope download --model Qwen/Qwen3-TTS-1.7B-CustomVoice --local_dir ./models/Qwen3-TTS-1.7B-CustomVoice
+
+# VoiceDesign model (voice design)
+modelscope download --model Qwen/Qwen3-TTS-1.7B-VoiceDesign --local_dir ./models/Qwen3-TTS-1.7B-VoiceDesign
 
 # Base model (voice cloning)
 modelscope download --model Qwen/Qwen3-TTS-0.6B --local_dir ./models/Qwen3-TTS-0.6B
