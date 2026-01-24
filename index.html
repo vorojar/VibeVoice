@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Qwen3-TTS 语音合成</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        cream: '#F9F7F5',
+                        'cream-dark': '#F0EDE8',
+                        'warm-gray': '#E8E4DE',
+                        charcoal: '#2D2D2D',
+                        accent: '#D4A373',
+                        'accent-dark': '#B8956A',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid #D4A373;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(212, 163, 115, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(212, 163, 115, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(212, 163, 115, 0); }
+        }
+        .recording { animation: pulse-ring 1.5s infinite; }
+        audio { height: 40px; }
+        audio::-webkit-media-controls-panel { background: #F9F7F5; }
+    </style>
+</head>
+<body class="bg-cream min-h-screen">
+    <div class="flex min-h-screen">
+        <!-- 左侧导航 -->
+        <aside class="fixed left-0 top-0 bottom-0 w-48 bg-cream-dark/50 p-4 flex flex-col border-r border-warm-gray/50">
+            <div class="mb-8">
+                <h1 class="text-xl font-bold text-charcoal">Qwen3-TTS</h1>
+                <p class="text-xs text-charcoal/50">语音合成服务</p>
+            </div>
+
+            <nav class="flex-1 space-y-2">
+                <div onclick="switchPage('demo')" id="nav-demo"
+                    class="px-4 py-3 rounded-xl cursor-pointer flex items-center gap-3 transition-all bg-white shadow-sm text-charcoal font-medium">
+                    <span>🎧</span> 在线试用
+                </div>
+                <div onclick="switchPage('api')" id="nav-api"
+                    class="px-4 py-3 rounded-xl cursor-pointer flex items-center gap-3 transition-all text-charcoal/70 hover:bg-warm-gray/50">
+                    <span>📡</span> API 文档
+                </div>
+            </nav>
+
+            <div class="pt-4 border-t border-warm-gray/50 text-xs text-charcoal/40">
+                Powered by Qwen3-TTS
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="flex-1 ml-48 p-6 pb-20">
+            <!-- 在线试用页面 -->
+            <div id="page-demo" class="max-w-3xl mx-auto">
+                <!-- 主标签切换 -->
+        <div class="flex gap-3 mb-6">
+            <button onclick="switchTab('custom')" id="tab-custom"
+                class="flex-1 px-6 py-3 rounded-xl font-medium transition-all bg-accent text-white">
+                🎙️ 预设说话人
+            </button>
+            <button onclick="switchTab('clone')" id="tab-clone"
+                class="flex-1 px-6 py-3 rounded-xl font-medium transition-all bg-warm-gray text-charcoal/70 hover:bg-accent/20">
+                🎭 语音克隆
+            </button>
+        </div>
+
+        <!-- 预设说话人面板 -->
+        <div id="panel-custom" class="space-y-5">
+            <!-- 文本输入 -->
+            <div class="bg-white rounded-2xl p-5 shadow-sm border border-warm-gray/50">
+                <h3 class="text-lg font-semibold text-charcoal mb-4 flex items-center gap-2">
+                    <span class="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">📝</span>
+                    输入文本
+                </h3>
+                <textarea id="text-custom" rows="3"
+                    class="w-full px-4 py-3 bg-white border border-warm-gray rounded-xl text-charcoal placeholder-charcoal/40 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all resize-none"
+                    placeholder="请输入要合成的文本...">你好，我是通义千问语音合成模型，很高兴认识你！</textarea>
+            </div>
+
+            <!-- 语音设置 -->
+            <div class="bg-white rounded-2xl p-5 shadow-sm border border-warm-gray/50">
+                <h3 class="text-lg font-semibold text-charcoal mb-4 flex items-center gap-2">
+                    <span class="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">⚙️</span>
+                    语音设置
+                </h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-charcoal/70 mb-2">说话人</label>
+                        <select id="speaker"
+                            class="w-full px-4 py-3 bg-white border border-warm-gray rounded-xl text-charcoal focus:outline-none focus:border-accent transition-all">
+                            <option value="vivian">Vivian (女声-中文)</option>
+                            <option value="uncle_fu">Uncle Fu (男声-中文)</option>
+                            <option value="aiden">Aiden (男声-英文)</option>
+                            <option value="serena">Serena (女声-英文)</option>
+                            <option value="ono_anna">Ono Anna (女声-日文)</option>
+                            <option value="sohee">Sohee (女声-韩文)</option>
+                            <option value="dylan">Dylan (男声)</option>
+                            <option value="eric">Eric (男声)</option>
+                            <option value="ryan">Ryan (男声)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-charcoal/70 mb-2">语言</label>
+                        <select id="language-custom"
+                            class="w-full px-4 py-3 bg-white border border-warm-gray rounded-xl text-charcoal focus:outline-none focus:border-accent transition-all">
+                            <option value="Chinese">中文</option>
+                            <option value="English">English</option>
+                            <option value="Japanese">日本語</option>
+                            <option value="Korean">한국어</option>
+                            <option value="German">Deutsch</option>
+                            <option value="French">Français</option>
+                            <option value="Spanish">Español</option>
+                            <option value="Russian">Русский</option>
+                            <option value="Portuguese">Português</option>
+                            <option value="Italian">Italiano</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <label class="block text-sm font-medium text-charcoal/70 mb-2">情感指令（可选）</label>
+                    <input type="text" id="instruct"
+                        class="w-full px-4 py-3 bg-white border border-warm-gray rounded-xl text-charcoal placeholder-charcoal/40 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all"
+                        placeholder="例如：用开心的语气说、用悲伤的语气说">
+                </div>
+            </div>
+
+            <!-- 生成按钮 -->
+            <button onclick="generateCustom()" id="btn-custom"
+                class="w-full py-4 bg-accent hover:bg-accent-dark text-white font-semibold rounded-xl transition-all shadow-sm hover:shadow-md">
+                生成语音
+            </button>
+
+            <!-- 状态和结果 -->
+            <div id="status-custom" class="text-center text-sm text-charcoal/60"></div>
+            <div id="audio-container-custom" class="hidden bg-white rounded-2xl p-5 shadow-sm border border-warm-gray/50">
+                <h3 class="text-lg font-semibold text-charcoal mb-3 flex items-center gap-2">
+                    <span class="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">🔊</span>
+                    生成结果
+                </h3>
+                <audio id="audio-custom" controls class="w-full"></audio>
+            </div>
+
+            <!-- 示例 -->
+            <div class="flex gap-2 flex-wrap">
+                <span class="text-sm text-charcoal/50">快速示例：</span>
+                <button onclick="setCustomExample('你好，欢迎使用通义千问语音合成系统！', 'vivian', 'Chinese')"
+                    class="px-3 py-1 bg-cream-dark rounded-lg text-sm text-charcoal/70 hover:bg-warm-gray transition-all">中文问候</button>
+                <button onclick="setCustomExample('Hello! Welcome to Qwen Text-to-Speech!', 'aiden', 'English')"
+                    class="px-3 py-1 bg-cream-dark rounded-lg text-sm text-charcoal/70 hover:bg-warm-gray transition-all">英文问候</button>
+                <button onclick="setCustomExample('こんにちは、私はQwenです。', 'ono_anna', 'Japanese')"
+                    class="px-3 py-1 bg-cream-dark rounded-lg text-sm text-charcoal/70 hover:bg-warm-gray transition-all">日文问候</button>
+            </div>
+        </div>
+
+        <!-- 语音克隆面板 -->
+        <div id="panel-clone" class="hidden space-y-5">
+            <!-- 声音库 -->
+            <div class="bg-white rounded-2xl p-5 shadow-sm border border-warm-gray/50">
+                <h3 class="text-lg font-semibold text-charcoal mb-4 flex items-center gap-2">
+                    <span class="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">💾</span>
+                    我的声音库
+                </h3>
+                <div id="voice-list" class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div id="no-voices" class="col-span-full text-center py-6 text-charcoal/40 text-sm">
+                        暂无保存的声音
+                    </div>
+                </div>
+            </div>
+
+            <!-- 新建克隆 -->
+            <div class="bg-white rounded-2xl p-5 shadow-sm border border-warm-gray/50">
+                <h3 class="text-lg font-semibold text-charcoal mb-4 flex items-center gap-2">
+                    <span class="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">🎤</span>
+                    参考音频
+                </h3>
+
+                <!-- 操作按钮 -->
+                <div class="flex gap-3 mb-4">
+                    <button onclick="toggleRecording()" id="record-btn"
+                        class="flex-1 px-4 py-3 rounded-xl font-medium transition-all bg-red-500 hover:bg-red-600 text-white flex items-center justify-center gap-2">
+                        <span id="record-icon">🎙️</span>
+                        <span id="record-text">录音</span>
+                    </button>
+                    <button onclick="document.getElementById('ref-audio').click()"
+                        class="flex-1 px-4 py-3 rounded-xl font-medium transition-all bg-warm-gray hover:bg-charcoal/10 text-charcoal/70 flex items-center justify-center gap-2">
+                        📁 上传文件
+                    </button>
+                    <input type="file" id="ref-audio" accept="audio/*" onchange="handleFileSelect(this)" class="hidden">
+                </div>
+
+                <!-- 录音计时器 -->
+                <div id="record-timer-row" class="hidden flex items-center gap-3 mb-4 p-3 bg-red-50 rounded-xl">
+                    <div class="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                    <span class="text-red-600 font-medium">正在录音</span>
+                    <span id="record-timer" class="text-red-500 font-bold">00:00</span>
+                </div>
+
+                <!-- 音频预览 -->
+                <div id="audio-preview-row" class="hidden flex items-center gap-3 p-3 bg-cream-dark rounded-xl">
+                    <audio id="audio-preview" controls class="flex-1 h-10"></audio>
+                    <button onclick="clearAudio()" class="px-3 py-1.5 text-charcoal/50 hover:text-red-500 text-sm transition-all">清除</button>
+                </div>
+
+                <!-- 参考文本 -->
+                <div class="mt-4">
+                    <label class="block text-sm font-medium text-charcoal/70 mb-2">参考音频文字内容（可选，可提高质量）</label>
+                    <input type="text" id="ref-text"
+                        class="w-full px-4 py-3 bg-white border border-warm-gray rounded-xl text-charcoal placeholder-charcoal/40 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all"
+                        placeholder="输入参考音频中说的话...">
+                </div>
+            </div>
+
+            <!-- 合成设置 -->
+            <div class="bg-white rounded-2xl p-5 shadow-sm border border-warm-gray/50">
+                <h3 class="text-lg font-semibold text-charcoal mb-4 flex items-center gap-2">
+                    <span class="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">📝</span>
+                    合成设置
+                </h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-charcoal/70 mb-2">要合成的文本</label>
+                        <textarea id="text-clone" rows="2"
+                            class="w-full px-4 py-3 bg-white border border-warm-gray rounded-xl text-charcoal placeholder-charcoal/40 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all resize-none"
+                            placeholder="请输入要用克隆声音朗读的文本...">你好，这是使用语音克隆技术生成的语音。</textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-charcoal/70 mb-2">语言</label>
+                        <select id="language-clone"
+                            class="w-full px-4 py-3 bg-white border border-warm-gray rounded-xl text-charcoal focus:outline-none focus:border-accent transition-all">
+                            <option value="Chinese">中文</option>
+                            <option value="English">English</option>
+                            <option value="Japanese">日本語</option>
+                            <option value="Korean">한국어</option>
+                            <option value="German">Deutsch</option>
+                            <option value="French">Français</option>
+                            <option value="Spanish">Español</option>
+                            <option value="Russian">Русский</option>
+                            <option value="Portuguese">Português</option>
+                            <option value="Italian">Italiano</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 生成按钮 -->
+            <button onclick="generateClone()" id="btn-clone"
+                class="w-full py-4 bg-accent hover:bg-accent-dark text-white font-semibold rounded-xl transition-all shadow-sm hover:shadow-md">
+                克隆并生成语音
+            </button>
+
+            <!-- 状态和结果 -->
+            <div id="status-clone" class="text-center text-sm text-charcoal/60"></div>
+            <div id="audio-container-clone" class="hidden bg-white rounded-2xl p-5 shadow-sm border border-warm-gray/50">
+                <h3 class="text-lg font-semibold text-charcoal mb-3 flex items-center gap-2">
+                    <span class="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">🔊</span>
+                    生成结果
+                </h3>
+                <audio id="audio-clone" controls class="w-full"></audio>
+                <div class="flex gap-2 mt-4">
+                    <input type="text" id="voice-name"
+                        class="flex-1 px-4 py-2 bg-white border border-warm-gray rounded-xl text-charcoal placeholder-charcoal/40 focus:outline-none focus:border-accent transition-all text-sm"
+                        placeholder="输入名称保存到声音库">
+                    <button onclick="saveVoice()" class="px-4 py-2 bg-warm-gray text-charcoal/70 rounded-xl text-sm font-medium hover:bg-charcoal/10 transition-all">
+                        保存
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- API 文档页面 -->
+    <div id="page-api" class="hidden max-w-3xl mx-auto space-y-6">
+                <div class="bg-white rounded-2xl p-6 shadow-sm border border-warm-gray/50">
+                    <h2 class="text-2xl font-bold text-charcoal mb-2">API 文档</h2>
+                    <p class="text-charcoal/60">通过 HTTP API 集成语音合成能力到你的应用中</p>
+                </div>
+
+                <!-- 预设说话人 API -->
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-warm-gray/50">
+                    <h3 class="text-lg font-semibold text-charcoal mb-4 flex items-center gap-2">
+                        <span class="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">🎙️</span>
+                        预设说话人 TTS
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">GET</span>
+                                <code class="text-sm text-charcoal">/tts</code>
+                            </div>
+                            <div class="bg-charcoal rounded-xl p-4 overflow-x-auto">
+                                <pre class="text-sm text-green-400"><code>curl "http://localhost:8000/tts?text=你好世界&speaker=vivian&language=Chinese" --output audio.wav</code></pre>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <p class="font-medium text-charcoal mb-1">参数</p>
+                                <ul class="text-charcoal/70 space-y-1">
+                                    <li><code class="bg-cream-dark px-1 rounded">text</code> - 要合成的文本</li>
+                                    <li><code class="bg-cream-dark px-1 rounded">speaker</code> - 说话人</li>
+                                    <li><code class="bg-cream-dark px-1 rounded">language</code> - 语言</li>
+                                    <li><code class="bg-cream-dark px-1 rounded">instruct</code> - 情感指令（可选）</li>
+                                </ul>
+                            </div>
+                            <div>
+                                <p class="font-medium text-charcoal mb-1">说话人列表</p>
+                                <p class="text-charcoal/70">vivian, uncle_fu, aiden, serena, ono_anna, sohee, dylan, eric, ryan</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 语音克隆 API -->
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-warm-gray/50">
+                    <h3 class="text-lg font-semibold text-charcoal mb-4 flex items-center gap-2">
+                        <span class="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">🎭</span>
+                        语音克隆
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded">POST</span>
+                                <code class="text-sm text-charcoal">/clone</code>
+                            </div>
+                            <div class="bg-charcoal rounded-xl p-4 overflow-x-auto">
+                                <pre class="text-sm text-green-400"><code>curl -X POST "http://localhost:8000/clone" \
+  -F "audio=@reference.wav" \
+  -F "text=要合成的文本" \
+  -F "language=Chinese" \
+  -F "ref_text=参考音频内容" \
+  --output clone.wav</code></pre>
+                            </div>
+                        </div>
+                        <div class="text-sm">
+                            <p class="font-medium text-charcoal mb-1">参数</p>
+                            <ul class="text-charcoal/70 space-y-1">
+                                <li><code class="bg-cream-dark px-1 rounded">audio</code> - 参考音频文件（3-10秒）</li>
+                                <li><code class="bg-cream-dark px-1 rounded">text</code> - 要合成的文本</li>
+                                <li><code class="bg-cream-dark px-1 rounded">language</code> - 语言</li>
+                                <li><code class="bg-cream-dark px-1 rounded">ref_text</code> - 参考音频文字内容（可选，提供可提高质量）</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 声音库 API -->
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-warm-gray/50">
+                    <h3 class="text-lg font-semibold text-charcoal mb-4 flex items-center gap-2">
+                        <span class="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">💾</span>
+                        声音库管理
+                    </h3>
+                    <div class="space-y-4 text-sm">
+                        <div class="flex items-center gap-3 p-3 bg-cream-dark rounded-xl">
+                            <span class="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">GET</span>
+                            <code class="text-charcoal">/voices</code>
+                            <span class="text-charcoal/50">获取已保存的声音列表</span>
+                        </div>
+                        <div class="flex items-center gap-3 p-3 bg-cream-dark rounded-xl">
+                            <span class="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded">POST</span>
+                            <code class="text-charcoal">/voices/save</code>
+                            <span class="text-charcoal/50">保存声音到声音库</span>
+                        </div>
+                        <div class="flex items-center gap-3 p-3 bg-cream-dark rounded-xl">
+                            <span class="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded">POST</span>
+                            <code class="text-charcoal">/voices/{'{voice_id}'}/tts</code>
+                            <span class="text-charcoal/50">使用已保存声音生成语音</span>
+                        </div>
+                        <div class="flex items-center gap-3 p-3 bg-cream-dark rounded-xl">
+                            <span class="px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded">DELETE</span>
+                            <code class="text-charcoal">/voices/{'{voice_id}'}</code>
+                            <span class="text-charcoal/50">删除已保存的声音</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 其他接口 -->
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-warm-gray/50">
+                    <h3 class="text-lg font-semibold text-charcoal mb-4 flex items-center gap-2">
+                        <span class="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">📋</span>
+                        其他接口
+                    </h3>
+                    <div class="space-y-3 text-sm">
+                        <div class="flex items-center gap-3 p-3 bg-cream-dark rounded-xl">
+                            <span class="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">GET</span>
+                            <code class="text-charcoal">/speakers</code>
+                            <span class="text-charcoal/50">获取可用说话人列表</span>
+                        </div>
+                        <div class="flex items-center gap-3 p-3 bg-cream-dark rounded-xl">
+                            <span class="px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded">GET</span>
+                            <code class="text-charcoal">/languages</code>
+                            <span class="text-charcoal/50">获取支持的语言列表</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 隐藏的预览音频 -->
+    <audio id="voice-preview-audio" class="hidden"></audio>
+
+    <script>
+        let selectedFile = null;
+        let recordedBlob = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let recordingStartTime = null;
+        let timerInterval = null;
+        let audioSource = 'record';
+        let savedVoices = [];
+        let selectedVoiceId = null;
+
+        // 页面加载
+        document.addEventListener('DOMContentLoaded', loadSavedVoices);
+
+        function switchPage(page) {
+            // 更新导航样式
+            document.getElementById('nav-demo').className = page === 'demo'
+                ? 'px-4 py-3 rounded-xl cursor-pointer flex items-center gap-3 transition-all bg-white shadow-sm text-charcoal font-medium'
+                : 'px-4 py-3 rounded-xl cursor-pointer flex items-center gap-3 transition-all text-charcoal/70 hover:bg-warm-gray/50';
+            document.getElementById('nav-api').className = page === 'api'
+                ? 'px-4 py-3 rounded-xl cursor-pointer flex items-center gap-3 transition-all bg-white shadow-sm text-charcoal font-medium'
+                : 'px-4 py-3 rounded-xl cursor-pointer flex items-center gap-3 transition-all text-charcoal/70 hover:bg-warm-gray/50';
+            // 切换页面
+            document.getElementById('page-demo').className = page === 'demo' ? 'max-w-3xl mx-auto' : 'hidden';
+            document.getElementById('page-api').className = page === 'api' ? 'max-w-3xl mx-auto space-y-6' : 'hidden';
+        }
+
+        async function loadSavedVoices() {
+            try {
+                const response = await fetch('/voices');
+                const data = await response.json();
+                savedVoices = data.voices || [];
+                renderVoiceList();
+            } catch (error) {
+                console.error('加载声音库失败:', error);
+            }
+        }
+
+        function renderVoiceList() {
+            const container = document.getElementById('voice-list');
+            if (savedVoices.length === 0) {
+                container.innerHTML = '<div class="col-span-full text-center py-6 text-charcoal/40 text-sm">暂无保存的声音</div>';
+                return;
+            }
+            container.innerHTML = savedVoices.map(voice => `
+                <div class="relative p-3 rounded-xl border-2 cursor-pointer transition-all ${selectedVoiceId === voice.id ? 'border-accent bg-accent/5' : 'border-warm-gray hover:border-accent/50'}"
+                     onclick="selectVoice('${voice.id}')">
+                    <div class="font-medium text-charcoal text-sm truncate pr-12">${voice.name}</div>
+                    <div class="text-xs text-charcoal/50 mt-1">${voice.language}</div>
+                    <div class="absolute top-2 right-2 flex gap-1">
+                        <button onclick="event.stopPropagation(); previewVoice('${voice.id}')"
+                            class="w-6 h-6 rounded bg-accent/10 text-accent text-xs flex items-center justify-center hover:bg-accent/20">▶</button>
+                        <button onclick="event.stopPropagation(); deleteVoice('${voice.id}')"
+                            class="w-6 h-6 rounded bg-red-50 text-red-400 text-xs flex items-center justify-center hover:bg-red-100">×</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function selectVoice(voiceId) {
+            selectedVoiceId = selectedVoiceId === voiceId ? null : voiceId;
+            renderVoiceList();
+        }
+
+        async function previewVoice(voiceId) {
+            const audio = document.getElementById('voice-preview-audio');
+            audio.src = `/voices/${voiceId}/preview`;
+            audio.play();
+        }
+
+        async function deleteVoice(voiceId) {
+            if (!confirm('确定要删除这个声音吗？')) return;
+            try {
+                const response = await fetch(`/voices/${voiceId}`, { method: 'DELETE' });
+                if (response.ok) {
+                    if (selectedVoiceId === voiceId) selectedVoiceId = null;
+                    await loadSavedVoices();
+                }
+            } catch (error) {
+                alert('删除失败: ' + error.message);
+            }
+        }
+
+        async function saveVoice() {
+            const name = document.getElementById('voice-name').value.trim();
+            const language = document.getElementById('language-clone').value;
+            const refText = document.getElementById('ref-text').value.trim();
+
+            if (!name) { alert('请输入声音名称'); return; }
+
+            let audioFile = null;
+            if (audioSource === 'record') {
+                if (!recordedBlob) { alert('请先录制参考音频'); return; }
+                audioFile = new File([recordedBlob], 'recording.webm', { type: 'audio/webm' });
+            } else {
+                if (!selectedFile) { alert('请先上传参考音频'); return; }
+                audioFile = selectedFile;
+            }
+
+            const formData = new FormData();
+            formData.append('name', name);
+            formData.append('language', language);
+            formData.append('ref_text', refText);
+            formData.append('audio', audioFile);
+
+            const btn = document.querySelector('#audio-container-clone button:last-child');
+            btn.disabled = true;
+            btn.textContent = '保存中...';
+
+            try {
+                const response = await fetch('/voices/save', { method: 'POST', body: formData });
+                if (response.ok) {
+                    document.getElementById('voice-name').value = '';
+                    btn.textContent = '已保存';
+                    await loadSavedVoices();
+                    setTimeout(() => { btn.textContent = '保存'; }, 2000);
+                } else {
+                    throw new Error((await response.json()).detail || '保存失败');
+                }
+            } catch (error) {
+                alert('保存失败: ' + error.message);
+                btn.textContent = '保存';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function switchTab(tab) {
+            document.getElementById('tab-custom').className = tab === 'custom'
+                ? 'flex-1 px-6 py-3 rounded-xl font-medium transition-all bg-accent text-white'
+                : 'flex-1 px-6 py-3 rounded-xl font-medium transition-all bg-warm-gray text-charcoal/70 hover:bg-accent/20';
+            document.getElementById('tab-clone').className = tab === 'clone'
+                ? 'flex-1 px-6 py-3 rounded-xl font-medium transition-all bg-accent text-white'
+                : 'flex-1 px-6 py-3 rounded-xl font-medium transition-all bg-warm-gray text-charcoal/70 hover:bg-accent/20';
+            document.getElementById('panel-custom').className = tab === 'custom' ? 'space-y-5' : 'hidden space-y-5';
+            document.getElementById('panel-clone').className = tab === 'clone' ? 'space-y-5' : 'hidden space-y-5';
+        }
+
+        async function toggleRecording() {
+            const btn = document.getElementById('record-btn');
+            const icon = document.getElementById('record-icon');
+            const text = document.getElementById('record-text');
+            const timerRow = document.getElementById('record-timer-row');
+            const timer = document.getElementById('record-timer');
+
+            if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                    audioChunks = [];
+
+                    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+                    mediaRecorder.onstop = () => {
+                        stream.getTracks().forEach(track => track.stop());
+                        recordedBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        selectedFile = null; // 清除上传的文件，使用录音
+                        audioSource = 'record';
+                        showAudioPreview(URL.createObjectURL(recordedBlob));
+                        timerRow.classList.add('hidden');
+                        icon.textContent = '🎙️';
+                        text.textContent = '录音';
+                        btn.classList.remove('bg-charcoal', 'hover:bg-charcoal/80');
+                        btn.classList.add('bg-red-500', 'hover:bg-red-600');
+                        clearInterval(timerInterval);
+                    };
+
+                    mediaRecorder.start();
+                    recordingStartTime = Date.now();
+                    icon.textContent = '⏹';
+                    text.textContent = '停止';
+                    btn.classList.remove('bg-red-500', 'hover:bg-red-600');
+                    btn.classList.add('bg-charcoal', 'hover:bg-charcoal/80');
+                    timerRow.classList.remove('hidden');
+                    timer.textContent = '00:00';
+
+                    timerInterval = setInterval(() => {
+                        const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+                        timer.textContent = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`;
+                    }, 100);
+                } catch (err) {
+                    alert('无法访问麦克风: ' + err.message);
+                }
+            } else if (mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+            }
+        }
+
+        function handleFileSelect(input) {
+            const file = input.files[0];
+            if (file) {
+                selectedFile = file;
+                recordedBlob = null; // 清除录音，使用上传的文件
+                audioSource = 'upload';
+                showAudioPreview(URL.createObjectURL(file));
+            }
+        }
+
+        function showAudioPreview(url) {
+            const row = document.getElementById('audio-preview-row');
+            const audio = document.getElementById('audio-preview');
+            audio.src = url;
+            row.classList.remove('hidden');
+        }
+
+        function clearAudio() {
+            selectedFile = null;
+            recordedBlob = null;
+            document.getElementById('audio-preview-row').classList.add('hidden');
+            document.getElementById('audio-preview').src = '';
+            document.getElementById('ref-audio').value = '';
+            if (mediaRecorder?.state === 'recording') mediaRecorder.stop();
+            mediaRecorder = null;
+            clearInterval(timerInterval);
+        }
+
+        async function generateCustom() {
+            const text = document.getElementById('text-custom').value.trim();
+            const speaker = document.getElementById('speaker').value;
+            const language = document.getElementById('language-custom').value;
+            const instruct = document.getElementById('instruct').value.trim();
+            const btn = document.getElementById('btn-custom');
+            const status = document.getElementById('status-custom');
+            const container = document.getElementById('audio-container-custom');
+            const audio = document.getElementById('audio-custom');
+
+            if (!text) { status.textContent = '请输入要合成的文本'; status.classList.add('text-red-500'); return; }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> 生成中...';
+            status.textContent = '';
+            container.classList.add('hidden');
+
+            try {
+                const params = new URLSearchParams({ text, speaker, language });
+                if (instruct) params.append('instruct', instruct);
+                const response = await fetch(`/tts?${params.toString()}`);
+                if (!response.ok) throw new Error('生成失败');
+
+                audio.src = URL.createObjectURL(await response.blob());
+                container.classList.remove('hidden');
+                audio.play();
+                status.textContent = '生成成功';
+                status.classList.remove('text-red-500');
+            } catch (error) {
+                status.textContent = '生成失败: ' + error.message;
+                status.classList.add('text-red-500');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '生成语音';
+            }
+        }
+
+        async function generateClone() {
+            const text = document.getElementById('text-clone').value.trim();
+            const language = document.getElementById('language-clone').value;
+            const refText = document.getElementById('ref-text').value.trim();
+            const btn = document.getElementById('btn-clone');
+            const status = document.getElementById('status-clone');
+            const container = document.getElementById('audio-container-clone');
+            const audio = document.getElementById('audio-clone');
+
+            if (!text) { status.textContent = '请输入要合成的文本'; status.classList.add('text-red-500'); return; }
+
+            btn.disabled = true;
+            container.classList.add('hidden');
+
+            try {
+                let response;
+                if (selectedVoiceId) {
+                    btn.innerHTML = '<span class="spinner"></span> 使用已保存声音生成中...';
+                    const formData = new FormData();
+                    formData.append('text', text);
+                    formData.append('language', language);
+                    response = await fetch(`/voices/${selectedVoiceId}/tts`, { method: 'POST', body: formData });
+                } else {
+                    let audioFile = null;
+                    if (audioSource === 'record') {
+                        if (!recordedBlob) { status.textContent = '请先录制参考音频，或从声音库选择'; status.classList.add('text-red-500'); btn.disabled = false; btn.textContent = '克隆并生成语音'; return; }
+                        audioFile = new File([recordedBlob], 'recording.webm', { type: 'audio/webm' });
+                    } else {
+                        if (!selectedFile) { status.textContent = '请先上传参考音频，或从声音库选择'; status.classList.add('text-red-500'); btn.disabled = false; btn.textContent = '克隆并生成语音'; return; }
+                        audioFile = selectedFile;
+                    }
+                    btn.innerHTML = '<span class="spinner"></span> 克隆语音中...';
+                    const formData = new FormData();
+                    formData.append('audio', audioFile);
+                    formData.append('text', text);
+                    formData.append('language', language);
+                    formData.append('ref_text', refText);
+                    response = await fetch('/clone', { method: 'POST', body: formData });
+                }
+
+                if (!response.ok) throw new Error((await response.json()).detail || '生成失败');
+
+                audio.src = URL.createObjectURL(await response.blob());
+                container.classList.remove('hidden');
+                audio.play();
+                status.textContent = '生成成功';
+                status.classList.remove('text-red-500');
+            } catch (error) {
+                status.textContent = '生成失败: ' + error.message;
+                status.classList.add('text-red-500');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '克隆并生成语音';
+            }
+        }
+
+        function setCustomExample(text, speaker, language) {
+            document.getElementById('text-custom').value = text;
+            document.getElementById('speaker').value = speaker;
+            document.getElementById('language-custom').value = language;
+        }
+    </script>
+</body>
+</html>
