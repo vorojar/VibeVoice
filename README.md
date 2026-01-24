@@ -44,8 +44,10 @@
 ### 环境要求
 
 - Python 3.8+
-- 支持 CUDA 的 GPU（建议8GB以上显存）
-- 支持 CUDA 的 PyTorch
+- 支持 CUDA 的 GPU（建议8GB以上显存），或 macOS Apple Silicon (M1/M2/M3)
+- 支持 CUDA 或 MPS 的 PyTorch
+
+> **macOS 用户注意**: Apple Silicon 芯片通过 MPS 后端支持，会自动检测并使用 float16 精度。实际兼容性取决于 qwen-tts 库对 MPS 的支持情况。
 
 ### 安装依赖
 

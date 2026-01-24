@@ -44,8 +44,10 @@ Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish
 ### Requirements
 
 - Python 3.8+
-- CUDA-compatible GPU (recommended 8GB+ VRAM)
-- PyTorch with CUDA support
+- CUDA-compatible GPU (recommended 8GB+ VRAM), or macOS Apple Silicon (M1/M2/M3)
+- PyTorch with CUDA or MPS support
+
+> **macOS Users**: Apple Silicon chips are supported via MPS backend with automatic detection using float16 precision. Actual compatibility depends on qwen-tts library's MPS support.
 
 ### Install Dependencies
 

@@ -57,6 +57,16 @@ SPEAKERS = ["aiden", "dylan", "eric", "ono_anna", "ryan", "serena", "sohee", "un
 LANGUAGES = ["Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"]
 
 
+def get_device_config():
+    """自动检测最佳设备和数据类型"""
+    if torch.cuda.is_available():
+        return "cuda:0", torch.bfloat16
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps", torch.float16  # MPS 对 bfloat16 支持有限
+    else:
+        return "cpu", torch.float32
+
+
 def load_model_sync(model_type: str):
     """同步加载指定模型"""
     global model_custom, model_clone, model_design, model_status
@@ -66,13 +76,14 @@ def load_model_sync(model_type: str):
 
     model_status[model_type] = "loading"
     config = MODEL_CONFIGS[model_type]
-    print(f"正在加载 {config['name']} 模型...")
+    device_map, dtype = get_device_config()
+    print(f"正在加载 {config['name']} 模型... (设备: {device_map}, 精度: {dtype})")
 
     try:
         model = Qwen3TTSModel.from_pretrained(
             config["path"],
-            device_map="cuda:0",
-            dtype=torch.bfloat16,
+            device_map=device_map,
+            dtype=dtype,
         )
 
         if model_type == "custom":
