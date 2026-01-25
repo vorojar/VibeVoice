@@ -4,7 +4,7 @@
 
 A web application for Text-to-Speech powered by Alibaba's Qwen3-TTS model, featuring preset voices and voice cloning capabilities.
 
-![Demo](demo.png)
+![Demo](demo_en.png)
 
 > **Note**: Streaming audio output is not currently supported as the official SDK does not expose streaming interfaces yet.
 
