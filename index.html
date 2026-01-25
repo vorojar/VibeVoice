@@ -319,6 +319,8 @@
                             <div id="download-menu" class="hidden absolute right-0 bottom-full mb-2 bg-white rounded-lg shadow-lg border border-warm-gray overflow-hidden z-10">
                                 <button onclick="downloadAudio('wav')" class="w-full px-4 py-2 text-left text-sm hover:bg-cream font-medium">WAV</button>
                                 <button onclick="downloadAudio('mp3')" class="w-full px-4 py-2 text-left text-sm hover:bg-cream font-medium border-t border-warm-gray">MP3</button>
+                                <button onclick="downloadSubtitle('srt')" class="w-full px-4 py-2 text-left text-sm hover:bg-cream font-medium border-t border-warm-gray">SRT</button>
+                                <button onclick="downloadSubtitle('vtt')" class="w-full px-4 py-2 text-left text-sm hover:bg-cream font-medium border-t border-warm-gray">VTT</button>
                             </div>
                         </div>
                     </div>
@@ -980,6 +982,7 @@
         // 分句进度生成
         let currentEventSource = null;
         let isGenerating = false;
+        let currentSubtitles = null;
 
         function stopGeneration() {
             if (currentEventSource) {
@@ -987,6 +990,7 @@
                 currentEventSource = null;
             }
             isGenerating = false;
+            currentSubtitles = null;
             // 隐藏进度视图
             const textInput = document.getElementById('text-input');
             const progressView = document.getElementById('progress-view');
@@ -1135,6 +1139,7 @@
                             currentEventSource = null;
                             isGenerating = false;
                             hideProgressView();
+                            currentSubtitles = data.subtitles || null;
 
                             // 将 base64 转为 blob URL
                             const binaryString = atob(data.audio);
@@ -1181,6 +1186,76 @@
                 btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t('btn.generate')}</span>`;
                 return null;
             });
+        }
+
+        // POST版本的进度生成（用于克隆，需要上传文件）
+        async function generateWithProgressPost(url, formData, btn, statusEl) {
+            isGenerating = true;
+            const text = document.getElementById('text-input').value.trim();
+            const sentences = splitTextToSentences(text);
+            showProgressView(sentences);
+
+            try {
+                const response = await fetch(url, { method: 'POST', body: formData });
+                if (!response.ok) throw new Error('Request failed');
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let result = null;
+
+                btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12"></rect></svg><span>${t('btn.stop')}</span>`;
+                btn.disabled = false;
+                btn.onclick = () => { reader.cancel(); stopGeneration(); };
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                if (data.started) {
+                                    statusEl.textContent = `${t('status.generating')} 0/${data.total} ${t('stats.sentences')} (0%)`;
+                                    updateSentenceProgress(0);
+                                }
+                                if (data.progress) {
+                                    const { current, total, percent } = data.progress;
+                                    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12"></rect></svg><span>${current}/${total} ${t('stats.sentences')} (${percent}%)</span>`;
+                                    statusEl.textContent = `${t('status.generating')} ${current}/${total} ${t('stats.sentences')} (${percent}%)`;
+                                    updateSentenceProgress(current);
+                                }
+                                if (data.done) {
+                                    currentSubtitles = data.subtitles || null;
+                                    const binaryString = atob(data.audio);
+                                    const bytes = new Uint8Array(binaryString.length);
+                                    for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+                                    result = { audioUrl: URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' })), stats: data.stats };
+                                }
+                                if (data.error) throw new Error(data.error);
+                            } catch (e) { if (e.message !== 'Unexpected end of JSON input') throw e; }
+                        }
+                    }
+                }
+
+                isGenerating = false;
+                hideProgressView();
+                btn.onclick = generate;
+                return result;
+            } catch (error) {
+                isGenerating = false;
+                hideProgressView();
+                btn.onclick = generate;
+                statusEl.innerHTML = `<span class="text-red-600">${t('status.failed')}: ${error.message}</span>`;
+                btn.disabled = false;
+                btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t('btn.generate')}</span>`;
+                return null;
+            }
         }
 
         async function generate() {
@@ -1286,13 +1361,34 @@
                         btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t('btn.generate')}</span>`;
                         return;
                     } else {
+                        // 使用克隆进度生成
                         const audioFile = recordedBlob ? new File([recordedBlob], 'recording.webm', { type: 'audio/webm' }) : selectedFile;
                         const formData = new FormData();
                         formData.append('audio', audioFile);
                         formData.append('text', text);
                         formData.append('language', language);
                         formData.append('ref_text', refText);
-                        response = await fetch('/clone', { method: 'POST', body: formData });
+
+                        const result = await generateWithProgressPost('/clone/progress', formData, btn, statusEl);
+                        if (!result) return;
+
+                        audioElement.src = result.audioUrl;
+                        stats = result.stats;
+
+                        audioElement.play();
+                        document.getElementById('player-section').classList.remove('hidden');
+
+                        if (stats) {
+                            document.getElementById('stats-chars').textContent = `${stats.char_count} ${t('stats.chars')} · ${stats.sentence_count} ${t('stats.sentences')} · ${stats.elapsed}s`;
+                            document.getElementById('stats-speed').textContent = `${stats.avg_per_char}s/${t('stats.chars')}`;
+                        }
+
+                        statusEl.innerHTML = `<span class="text-green-600">${t('status.success')}</span>`;
+                        document.getElementById('save-voice-section').classList.remove('hidden');
+
+                        btn.disabled = false;
+                        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t('btn.generate')}</span>`;
+                        return;
                     }
 
                 } else if (currentMode === 'design') {
@@ -1492,6 +1588,48 @@
                     btn.disabled = false;
                 }
             }
+        }
+
+        function downloadSubtitle(format) {
+            if (!currentSubtitles || !currentSubtitles.length) {
+                alert('没有可用的字幕数据');
+                return;
+            }
+            document.getElementById('download-menu').classList.add('hidden');
+            const timestamp = Date.now();
+            let content, filename;
+            if (format === 'srt') {
+                content = currentSubtitles.map((s, i) =>
+                    `${i+1}\n${formatSrtTime(s.start)} --> ${formatSrtTime(s.end)}\n${s.text}\n`
+                ).join('\n');
+                filename = `tts_${timestamp}.srt`;
+            } else {
+                content = 'WEBVTT\n\n' + currentSubtitles.map((s, i) =>
+                    `${i+1}\n${formatVttTime(s.start)} --> ${formatVttTime(s.end)}\n${s.text}\n`
+                ).join('\n');
+                filename = `tts_${timestamp}.vtt`;
+            }
+            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            a.click();
+        }
+
+        function formatSrtTime(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            const ms = Math.round((seconds % 1) * 1000);
+            return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')},${String(ms).padStart(3,'0')}`;
+        }
+
+        function formatVttTime(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = Math.floor(seconds % 60);
+            const ms = Math.round((seconds % 1) * 1000);
+            return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
         }
 
         // 解析 WAV 文件

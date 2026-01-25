@@ -498,8 +498,10 @@ async def tts_with_progress(
             # 发送开始信号
             yield f"data: {json.dumps({'started': True, 'total': total, 'total_chars': total_chars})}\n\n"
 
-            # 收集所有音频
+            # 收集所有音频和字幕时间
             all_audio = []
+            subtitles = []
+            current_time = 0.0
             sample_rate = SAMPLE_RATE
             loop = asyncio.get_event_loop()
 
@@ -527,6 +529,10 @@ async def tts_with_progress(
 
                 all_audio.append(wavs[0])
                 sample_rate = sr
+                # 记录字幕时间
+                duration = len(wavs[0]) / sr
+                subtitles.append({"text": sentence, "start": round(current_time, 3), "end": round(current_time + duration, 3)})
+                current_time += duration
                 completed = i + 1
 
                 # 推送进度
@@ -560,6 +566,7 @@ async def tts_with_progress(
                 "done": True,
                 "audio": audio_base64,
                 "sample_rate": sample_rate,
+                "subtitles": subtitles,
                 "stats": {
                     "char_count": total_chars,
                     "sentence_count": total,
@@ -567,7 +574,7 @@ async def tts_with_progress(
                     "avg_per_char": round(avg_per_char, 3),
                 }
             }
-            yield f"data: {json.dumps(done_data)}\n\n"
+            yield f"data: {json.dumps(done_data, ensure_ascii=False)}\n\n"
 
         except asyncio.CancelledError:
             print(f"[TTS进度] 生成被取消 ({completed}/{total})")
@@ -668,6 +675,141 @@ async def voice_clone(
         # 清理临时文件
         if temp_file and os.path.exists(temp_file.name):
             os.unlink(temp_file.name)
+
+
+@app.post("/clone/progress")
+async def voice_clone_progress(
+    request: Request,
+    text: str = Form(..., description="要合成的文本"),
+    language: str = Form("Chinese", description="语言"),
+    ref_text: str = Form("", description="参考音频的文字内容"),
+    audio: UploadFile = File(..., description="参考音频文件"),
+):
+    """语音克隆（带进度）"""
+    import base64
+    import asyncio
+
+    if model_status["clone"] != "loaded":
+        raise HTTPException(status_code=503, detail={"error": "model_not_loaded", "model": "clone", "status": model_status["clone"]})
+
+    if not text:
+        raise HTTPException(status_code=400, detail="text 参数不能为空")
+
+    if language not in LANGUAGES:
+        raise HTTPException(status_code=400, detail=f"不支持的语言: {language}")
+
+    # 保存上传的音频到临时文件
+    audio_content = await audio.read()
+    suffix = Path(audio.filename).suffix if audio.filename else ".wav"
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    temp_file.write(audio_content)
+    temp_file.close()
+    temp_path = temp_file.name
+
+    async def generate_with_progress():
+        completed = 0
+        total = 0
+        try:
+            sentences = split_text_to_sentences(text, min_length=10)
+            total = len(sentences)
+            total_chars = len(text)
+
+            print(f"[克隆进度] 开始生成: {total_chars} 字 | {total} 句 | 语言: {language}")
+            start_time = time.time()
+
+            yield f"data: {json.dumps({'started': True, 'total': total, 'total_chars': total_chars})}\n\n"
+
+            # 生成 voice prompt
+            use_x_vector_only = not ref_text
+            voice_prompt = model_clone.get_voice_prompt(
+                ref_audio=temp_path,
+                ref_text=ref_text if ref_text else None,
+                x_vector_only_mode=use_x_vector_only,
+            )
+
+            all_audio = []
+            subtitles = []
+            current_time = 0.0
+            sample_rate = SAMPLE_RATE
+            loop = asyncio.get_event_loop()
+
+            for i, sentence in enumerate(sentences):
+                if await request.is_disconnected():
+                    print(f"[克隆进度] 客户端已断开，停止生成 ({i}/{total})")
+                    return
+
+                wavs, sr = await loop.run_in_executor(
+                    None,
+                    lambda s=sentence, vp=voice_prompt: model_clone.generate_voice_clone(
+                        text=s,
+                        language=language,
+                        voice_clone_prompt=[vp],
+                    )
+                )
+
+                if await request.is_disconnected():
+                    print(f"[克隆进度] 客户端已断开，停止生成 ({i+1}/{total})")
+                    return
+
+                all_audio.append(wavs[0])
+                sample_rate = sr
+                duration = len(wavs[0]) / sr
+                subtitles.append({"text": sentence, "start": round(current_time, 3), "end": round(current_time + duration, 3)})
+                current_time += duration
+                completed = i + 1
+
+                progress_data = {
+                    "progress": {
+                        "current": i + 1,
+                        "total": total,
+                        "percent": round((i + 1) / total * 100),
+                        "sentence": sentence[:20] + "..." if len(sentence) > 20 else sentence,
+                    }
+                }
+                yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
+                print(f"[克隆进度] {i+1}/{total} 完成: {sentence[:30]}...")
+
+            merged_audio = np.concatenate(all_audio)
+
+            elapsed = time.time() - start_time
+            avg_per_char = elapsed / total_chars if total_chars > 0 else 0
+            print(f"[克隆进度] 全部完成: {total_chars} 字 | {total} 句 | 用时 {elapsed:.2f}s | 平均 {avg_per_char:.3f}s/字")
+
+            audio_buffer = io.BytesIO()
+            sf.write(audio_buffer, merged_audio, sample_rate, format='WAV')
+            audio_buffer.seek(0)
+            audio_base64 = base64.b64encode(audio_buffer.read()).decode('utf-8')
+
+            done_data = {
+                "done": True,
+                "audio": audio_base64,
+                "sample_rate": sample_rate,
+                "subtitles": subtitles,
+                "stats": {
+                    "char_count": total_chars,
+                    "sentence_count": total,
+                    "elapsed": round(elapsed, 2),
+                    "avg_per_char": round(avg_per_char, 3),
+                }
+            }
+            yield f"data: {json.dumps(done_data, ensure_ascii=False)}\n\n"
+
+        except asyncio.CancelledError:
+            print(f"[克隆进度] 生成被取消 ({completed}/{total})")
+        except GeneratorExit:
+            print(f"[克隆进度] 客户端断开连接 ({completed}/{total})")
+        except Exception as e:
+            import traceback
+            yield f"data: {json.dumps({'error': str(e), 'traceback': traceback.format_exc()})}\n\n"
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    return StreamingResponse(
+        generate_with_progress(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
+    )
 
 
 @app.post("/design")
@@ -778,8 +920,10 @@ async def voice_design_progress(
             # 发送开始信号
             yield f"data: {json.dumps({'started': True, 'total': total, 'total_chars': total_chars})}\n\n"
 
-            # 收集所有音频
+            # 收集所有音频和字幕时间
             all_audio = []
+            subtitles = []
+            current_time = 0.0
             sample_rate = SAMPLE_RATE
             loop = asyncio.get_event_loop()
 
@@ -806,6 +950,9 @@ async def voice_design_progress(
 
                 all_audio.append(wavs[0])
                 sample_rate = sr
+                duration = len(wavs[0]) / sr
+                subtitles.append({"text": sentence, "start": round(current_time, 3), "end": round(current_time + duration, 3)})
+                current_time += duration
                 completed = i + 1
 
                 # 推送进度
@@ -839,6 +986,7 @@ async def voice_design_progress(
                 "done": True,
                 "audio": audio_base64,
                 "sample_rate": sample_rate,
+                "subtitles": subtitles,
                 "stats": {
                     "char_count": total_chars,
                     "sentence_count": total,
@@ -846,7 +994,7 @@ async def voice_design_progress(
                     "avg_per_char": round(avg_per_char, 3),
                 }
             }
-            yield f"data: {json.dumps(done_data)}\n\n"
+            yield f"data: {json.dumps(done_data, ensure_ascii=False)}\n\n"
 
         except asyncio.CancelledError:
             print(f"[设计进度] 生成被取消 ({completed}/{total})")
@@ -1164,8 +1312,10 @@ async def tts_with_saved_voice_progress(
             # 获取或创建缓存的 voice prompt
             voice_prompt = get_or_create_voice_prompt(voice_id, str(audio_path), ref_text)
 
-            # 收集所有音频
+            # 收集所有音频和字幕时间
             all_audio = []
+            subtitles = []
+            current_time = 0.0
             sample_rate = SAMPLE_RATE
             loop = asyncio.get_event_loop()
 
@@ -1192,6 +1342,9 @@ async def tts_with_saved_voice_progress(
 
                 all_audio.append(wavs[0])
                 sample_rate = sr
+                duration = len(wavs[0]) / sr
+                subtitles.append({"text": sentence, "start": round(current_time, 3), "end": round(current_time + duration, 3)})
+                current_time += duration
                 completed = i + 1
 
                 # 推送进度
@@ -1225,6 +1378,7 @@ async def tts_with_saved_voice_progress(
                 "done": True,
                 "audio": audio_base64,
                 "sample_rate": sample_rate,
+                "subtitles": subtitles,
                 "stats": {
                     "char_count": total_chars,
                     "sentence_count": total,
@@ -1232,7 +1386,7 @@ async def tts_with_saved_voice_progress(
                     "avg_per_char": round(avg_per_char, 3),
                 }
             }
-            yield f"data: {json.dumps(done_data)}\n\n"
+            yield f"data: {json.dumps(done_data, ensure_ascii=False)}\n\n"
 
         except asyncio.CancelledError:
             print(f"[声音库进度] 生成被取消 ({completed}/{total})")
