@@ -99,6 +99,20 @@
             font-size: 16px;
         }
 
+        /* 句子进度样式 */
+        .sentence-pending {
+            color: #2D3748;
+        }
+        .sentence-current {
+            color: #E07A5F;
+            background: #FEF3E2;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+        .sentence-done {
+            color: #A0AEC0;
+        }
+
         select.input-field {
             cursor: pointer;
             appearance: none;
@@ -234,7 +248,7 @@
                 </div>
 
                 <!-- 底部版本信息 -->
-                <div class="p-3 border-t border-warm-gray text-xs text-charcoal/40">
+                <div class="mt-auto p-3 border-t border-warm-gray text-xs text-charcoal/40">
                     Qwen3-TTS v1.0
                 </div>
             </aside>
@@ -254,6 +268,8 @@
                         placeholder="在此输入要转换的文本..."
                         oninput="updateCharCount()"
                     ></textarea>
+                    <!-- 生成进度视图 (生成时显示) -->
+                    <div id="progress-view" class="hidden input-field flex-1 overflow-y-auto leading-relaxed"></div>
 
                     <!-- 操作栏 -->
                     <div class="flex items-center justify-between mt-4">
@@ -577,10 +593,13 @@
                 'btn.stopRecord': '停止',
                 'btn.upload': '上传文件',
                 'btn.save': '保存',
+                'btn.stop': '停止',
                 'stats.chars': '字',
+                'stats.sentences': '句',
                 'status.generating': '生成中...',
                 'status.success': '生成成功',
                 'status.failed': '生成失败',
+                'status.stopped': '已停止',
                 'status.enterText': '请输入文本',
                 'status.needAudio': '请录音或上传参考音频',
                 'status.needDesc': '请输入声音描述',
@@ -621,10 +640,13 @@
                 'btn.stopRecord': 'Stop',
                 'btn.upload': 'Upload',
                 'btn.save': 'Save',
+                'btn.stop': 'Stop',
                 'stats.chars': 'chars',
+                'stats.sentences': 'sentences',
                 'status.generating': 'Generating...',
                 'status.success': 'Success',
                 'status.failed': 'Failed',
+                'status.stopped': 'Stopped',
                 'status.enterText': 'Please enter text',
                 'status.needAudio': 'Please record or upload audio',
                 'status.needDesc': 'Please enter voice description',
@@ -696,6 +718,12 @@
         function updateCharCount() {
             const text = document.getElementById('text-input').value;
             document.getElementById('char-count').innerHTML = `${text.length} <span data-i18n="stats.chars">${t('stats.chars')}</span>`;
+
+            // 文本为空时禁用生成按钮
+            const btn = document.getElementById('generate-btn');
+            if (!isGenerating) {
+                btn.disabled = text.trim().length === 0;
+            }
         }
 
         // ===== 声音库 =====
@@ -907,6 +935,213 @@
         }
 
         // ===== 生成语音 =====
+
+        // 分句进度生成
+        let currentEventSource = null;
+        let isGenerating = false;
+
+        function stopGeneration() {
+            if (currentEventSource) {
+                currentEventSource.close();
+                currentEventSource = null;
+            }
+            isGenerating = false;
+            // 隐藏进度视图
+            const textInput = document.getElementById('text-input');
+            const progressView = document.getElementById('progress-view');
+            textInput.classList.remove('hidden');
+            progressView.classList.add('hidden');
+
+            const btn = document.getElementById('generate-btn');
+            const statusEl = document.getElementById('status-message');
+            btn.disabled = false;
+            btn.onclick = generate;
+            btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t('btn.generate')}</span>`;
+            statusEl.innerHTML = `<span class="text-yellow-600">${t('status.stopped')}</span>`;
+            updateCharCount();
+        }
+
+        // 前端分句（与后端保持一致）
+        function splitTextToSentences(text, minLength = 10) {
+            const pattern = /([。！？；.!?;]+|\n)/;
+            const parts = text.split(pattern);
+
+            const rawSentences = [];
+            let current = '';
+            for (const part of parts) {
+                current += part;
+                if (pattern.test(part)) {
+                    if (current.trim()) {
+                        rawSentences.push(current.trim());
+                    }
+                    current = '';
+                }
+            }
+            if (current.trim()) {
+                rawSentences.push(current.trim());
+            }
+
+            if (rawSentences.length === 0) {
+                return text.trim() ? [text] : [];
+            }
+
+            // 合并过短的句子
+            const merged = [];
+            let buffer = '';
+            for (const sentence of rawSentences) {
+                buffer += sentence;
+                if (buffer.length >= minLength) {
+                    merged.push(buffer);
+                    buffer = '';
+                }
+            }
+            if (buffer) {
+                if (merged.length > 0) {
+                    merged[merged.length - 1] += buffer;
+                } else {
+                    merged.push(buffer);
+                }
+            }
+            return merged;
+        }
+
+        // 显示进度视图
+        function showProgressView(sentences) {
+            const textInput = document.getElementById('text-input');
+            const progressView = document.getElementById('progress-view');
+
+            // 构建带样式的句子列表
+            let html = '';
+            sentences.forEach((sentence, index) => {
+                html += `<span id="sentence-${index}" class="sentence-pending">${escapeHtml(sentence)}</span>`;
+            });
+
+            progressView.innerHTML = html;
+            textInput.classList.add('hidden');
+            progressView.classList.remove('hidden');
+        }
+
+        // 更新句子进度样式
+        function updateSentenceProgress(current) {
+            // current 是已完成的数量（1-based）
+            for (let i = 0; i < current; i++) {
+                const el = document.getElementById(`sentence-${i}`);
+                if (el) {
+                    el.className = 'sentence-done';
+                }
+            }
+            // 标记正在生成的句子
+            const currentEl = document.getElementById(`sentence-${current}`);
+            if (currentEl) {
+                currentEl.className = 'sentence-current';
+            }
+        }
+
+        // 隐藏进度视图
+        function hideProgressView() {
+            const textInput = document.getElementById('text-input');
+            const progressView = document.getElementById('progress-view');
+            textInput.classList.remove('hidden');
+            progressView.classList.add('hidden');
+            updateCharCount();
+        }
+
+        // HTML 转义
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function generateWithProgress(url, btn, statusEl) {
+            isGenerating = true;
+
+            // 获取文本并分句显示
+            const text = document.getElementById('text-input').value.trim();
+            const sentences = splitTextToSentences(text);
+            showProgressView(sentences);
+
+            return new Promise((resolve, reject) => {
+                const eventSource = new EventSource(url);
+                currentEventSource = eventSource;
+                let totalSentences = 0;
+
+                eventSource.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+
+                        if (data.started) {
+                            totalSentences = data.total;
+                            statusEl.textContent = `${t('status.generating')} 0/${totalSentences} ${t('stats.sentences')} (0%)`;
+                            // 显示停止按钮
+                            btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12"></rect></svg><span>${t('btn.stop')}</span>`;
+                            btn.disabled = false;
+                            btn.onclick = stopGeneration;
+                            // 标记第一句正在生成
+                            updateSentenceProgress(0);
+                        }
+
+                        if (data.progress) {
+                            const { current, total, percent } = data.progress;
+                            btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12"></rect></svg><span>${current}/${total} ${t('stats.sentences')} (${percent}%)</span>`;
+                            statusEl.textContent = `${t('status.generating')} ${current}/${total} ${t('stats.sentences')} (${percent}%)`;
+                            // 更新句子样式
+                            updateSentenceProgress(current);
+                        }
+
+                        if (data.done) {
+                            eventSource.close();
+                            currentEventSource = null;
+                            isGenerating = false;
+                            hideProgressView();
+
+                            // 将 base64 转为 blob URL
+                            const binaryString = atob(data.audio);
+                            const bytes = new Uint8Array(binaryString.length);
+                            for (let i = 0; i < binaryString.length; i++) {
+                                bytes[i] = binaryString.charCodeAt(i);
+                            }
+                            const blob = new Blob([bytes], { type: 'audio/wav' });
+                            const audioUrl = URL.createObjectURL(blob);
+
+                            // 恢复按钮
+                            btn.onclick = generate;
+                            resolve({
+                                audioUrl,
+                                stats: data.stats,
+                            });
+                        }
+
+                        if (data.error) {
+                            eventSource.close();
+                            currentEventSource = null;
+                            isGenerating = false;
+                            hideProgressView();
+                            btn.onclick = generate;
+                            reject(new Error(data.error));
+                        }
+                    } catch (e) {
+                        console.error('Parse error:', e);
+                    }
+                };
+
+                eventSource.onerror = (error) => {
+                    eventSource.close();
+                    currentEventSource = null;
+                    isGenerating = false;
+                    hideProgressView();
+                    btn.onclick = generate;
+                    reject(new Error(t('status.failed')));
+                };
+            }).catch((error) => {
+                hideProgressView();
+                statusEl.innerHTML = `<span class="text-red-600">${t('status.failed')}: ${error.message}</span>`;
+                btn.disabled = false;
+                btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t('btn.generate')}</span>`;
+                return null;
+            });
+        }
+
         async function generate() {
             const text = document.getElementById('text-input').value.trim();
             const btn = document.getElementById('generate-btn');
@@ -947,25 +1182,68 @@
 
             try {
                 let response;
+                let stats = null;
 
                 if (currentMode === 'preset') {
                     const speaker = document.getElementById('speaker').value;
                     const language = document.getElementById('language-preset').value;
                     const instruct = document.getElementById('instruct').value.trim();
 
+                    // 使用分句进度生成
                     const params = new URLSearchParams({ text, speaker, language });
                     if (instruct) params.append('instruct', instruct);
-                    response = await fetch(`/tts?${params.toString()}`);
+
+                    const result = await generateWithProgress(`/tts/progress?${params.toString()}`, btn, statusEl);
+                    if (!result) return;
+
+                    audioElement.src = result.audioUrl;
+                    stats = result.stats;
+
+                    // 跳过后面的 response 处理
+                    audioElement.play();
+                    document.getElementById('player-section').classList.remove('hidden');
+
+                    if (stats) {
+                        document.getElementById('stats-chars').textContent = `${stats.char_count} ${t('stats.chars')} · ${stats.sentence_count} ${t('stats.sentences')} · ${stats.elapsed}s`;
+                        document.getElementById('stats-speed').textContent = `${stats.avg_per_char}s/${t('stats.chars')}`;
+                    }
+
+                    statusEl.innerHTML = `<span class="text-green-600">${t('status.success')}</span>`;
+                    document.getElementById('save-voice-section').classList.add('hidden');
+
+                    btn.disabled = false;
+                    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t('btn.generate')}</span>`;
+                    return;
 
                 } else if (currentMode === 'clone') {
                     const language = document.getElementById('language-clone').value;
                     const refText = document.getElementById('ref-text').value.trim();
 
                     if (selectedVoiceId) {
-                        const formData = new FormData();
-                        formData.append('text', text);
-                        formData.append('language', language);
-                        response = await fetch(`/voices/${selectedVoiceId}/tts`, { method: 'POST', body: formData });
+                        // 使用声音库的分句进度生成
+                        const params = new URLSearchParams({ text });
+                        if (language) params.append('language', language);
+
+                        const result = await generateWithProgress(`/voices/${selectedVoiceId}/tts/progress?${params.toString()}`, btn, statusEl);
+                        if (!result) return;
+
+                        audioElement.src = result.audioUrl;
+                        stats = result.stats;
+
+                        audioElement.play();
+                        document.getElementById('player-section').classList.remove('hidden');
+
+                        if (stats) {
+                            document.getElementById('stats-chars').textContent = `${stats.char_count} ${t('stats.chars')} · ${stats.sentence_count} ${t('stats.sentences')} · ${stats.elapsed}s`;
+                            document.getElementById('stats-speed').textContent = `${stats.avg_per_char}s/${t('stats.chars')}`;
+                        }
+
+                        statusEl.innerHTML = `<span class="text-green-600">${t('status.success')}</span>`;
+                        document.getElementById('save-voice-section').classList.add('hidden');
+
+                        btn.disabled = false;
+                        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t('btn.generate')}</span>`;
+                        return;
                     } else {
                         const audioFile = recordedBlob ? new File([recordedBlob], 'recording.webm', { type: 'audio/webm' }) : selectedFile;
                         const formData = new FormData();
@@ -980,11 +1258,29 @@
                     const language = document.getElementById('language-design').value;
                     const desc = document.getElementById('voice-desc').value.trim();
 
-                    const formData = new FormData();
-                    formData.append('text', text);
-                    formData.append('language', language);
-                    formData.append('instruct', desc);
-                    response = await fetch('/design', { method: 'POST', body: formData });
+                    // 使用声音设计的分句进度生成
+                    const params = new URLSearchParams({ text, language, instruct: desc });
+
+                    const result = await generateWithProgress(`/design/progress?${params.toString()}`, btn, statusEl);
+                    if (!result) return;
+
+                    audioElement.src = result.audioUrl;
+                    stats = result.stats;
+
+                    audioElement.play();
+                    document.getElementById('player-section').classList.remove('hidden');
+
+                    if (stats) {
+                        document.getElementById('stats-chars').textContent = `${stats.char_count} ${t('stats.chars')} · ${stats.sentence_count} ${t('stats.sentences')} · ${stats.elapsed}s`;
+                        document.getElementById('stats-speed').textContent = `${stats.avg_per_char}s/${t('stats.chars')}`;
+                    }
+
+                    statusEl.innerHTML = `<span class="text-green-600">${t('status.success')}</span>`;
+                    document.getElementById('save-voice-section').classList.add('hidden');
+
+                    btn.disabled = false;
+                    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t('btn.generate')}</span>`;
+                    return;
                 }
 
                 if (!response.ok) {
@@ -1127,6 +1423,7 @@
             currentLang = localStorage.getItem('lang') || 'zh';
             updateI18n();
             loadSavedVoices();
+            updateCharCount();
         });
     </script>
 </body>

@@ -4,7 +4,7 @@ import json
 import torch
 import tempfile
 import time
-from fastapi import FastAPI, Query, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, Query, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -337,28 +337,51 @@ async def tts_post(
 
 import re
 
-def split_text_to_sentences(text: str) -> list:
-    """将文本按标点符号分割成句子"""
-    # 中英文标点
-    pattern = r'([。！？；\n.!?;])'
+def split_text_to_sentences(text: str, min_length: int = 10) -> list:
+    """
+    智能分句：按标点分割，合并过短的句子
+
+    - 支持连续标点 ???、!!!、。。。
+    - 短句自动合并，直到达到 min_length
+    """
+    # 匹配一个或多个连续的中英文标点
+    pattern = r'([。！？；.!?;]+|\n)'
     parts = re.split(pattern, text)
 
-    sentences = []
+    # 先按标点分成基本句子
+    raw_sentences = []
     current = ""
     for part in parts:
         current += part
         if re.match(pattern, part):
             if current.strip():
-                sentences.append(current.strip())
+                raw_sentences.append(current.strip())
             current = ""
     if current.strip():
-        sentences.append(current.strip())
+        raw_sentences.append(current.strip())
 
     # 如果没有分割出句子，返回整个文本
-    if not sentences:
-        sentences = [text]
+    if not raw_sentences:
+        return [text] if text.strip() else []
 
-    return sentences
+    # 合并过短的句子
+    merged = []
+    buffer = ""
+    for sentence in raw_sentences:
+        buffer += sentence
+        if len(buffer) >= min_length:
+            merged.append(buffer)
+            buffer = ""
+
+    # 处理剩余内容
+    if buffer:
+        if merged:
+            # 追加到最后一句
+            merged[-1] += buffer
+        else:
+            merged.append(buffer)
+
+    return merged
 
 
 @app.get("/tts/stream")
@@ -390,7 +413,7 @@ async def tts_stream(
     if language not in LANGUAGES:
         raise HTTPException(status_code=400, detail=f"不支持的语言: {language}")
 
-    async def generate_audio_stream():
+    def generate_audio_stream():
         try:
             # 发送开始信号
             yield f"data: {json.dumps({'started': True, 'mode': 'token_streaming'})}\n\n"
@@ -421,6 +444,141 @@ async def tts_stream(
 
     return StreamingResponse(
         generate_audio_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@app.get("/tts/progress")
+async def tts_with_progress(
+    request: Request,
+    text: str = Query(..., description="要合成的文本"),
+    speaker: str = Query("vivian", description="说话人"),
+    language: str = Query("Chinese", description="语言"),
+    instruct: str = Query(None, description="情感指令"),
+):
+    """
+    分句生成 TTS（带进度）
+
+    - SSE 推送进度: {"progress": {"current": 1, "total": 10}}
+    - 最后推送完整音频: {"done": true, "audio": "base64..."}
+    - 支持客户端断开时停止生成
+    """
+    import base64
+    import asyncio
+
+    if model_status["custom"] != "loaded":
+        raise HTTPException(status_code=503, detail={"error": "model_not_loaded", "model": "custom", "status": model_status["custom"]})
+
+    if not text:
+        raise HTTPException(status_code=400, detail="text 参数不能为空")
+
+    if speaker not in SPEAKERS:
+        raise HTTPException(status_code=400, detail=f"不支持的说话人: {speaker}")
+
+    if language not in LANGUAGES:
+        raise HTTPException(status_code=400, detail=f"不支持的语言: {language}")
+
+    async def generate_with_progress():
+        completed = 0
+        total = 0
+        try:
+            # 分句
+            sentences = split_text_to_sentences(text, min_length=10)
+            total = len(sentences)
+            total_chars = len(text)
+
+            print(f"[TTS进度] 开始生成: {total_chars} 字 | {total} 句 | 说话人: {speaker}")
+            start_time = time.time()
+
+            # 发送开始信号
+            yield f"data: {json.dumps({'started': True, 'total': total, 'total_chars': total_chars})}\n\n"
+
+            # 收集所有音频
+            all_audio = []
+            sample_rate = SAMPLE_RATE
+            loop = asyncio.get_event_loop()
+
+            for i, sentence in enumerate(sentences):
+                # 检查客户端是否断开
+                if await request.is_disconnected():
+                    print(f"[TTS进度] 客户端已断开，停止生成 ({i}/{total})")
+                    return
+
+                # 在线程池中运行阻塞的模型推理
+                wavs, sr = await loop.run_in_executor(
+                    None,
+                    lambda s=sentence: model_custom.generate_custom_voice(
+                        text=s,
+                        language=language,
+                        speaker=speaker,
+                        instruct=instruct,
+                    )
+                )
+
+                # 生成后再次检查断开
+                if await request.is_disconnected():
+                    print(f"[TTS进度] 客户端已断开，停止生成 ({i+1}/{total})")
+                    return
+
+                all_audio.append(wavs[0])
+                sample_rate = sr
+                completed = i + 1
+
+                # 推送进度
+                progress_data = {
+                    "progress": {
+                        "current": i + 1,
+                        "total": total,
+                        "percent": round((i + 1) / total * 100),
+                        "sentence": sentence[:20] + "..." if len(sentence) > 20 else sentence,
+                    }
+                }
+                yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
+                print(f"[TTS进度] {i+1}/{total} 完成: {sentence[:30]}...")
+
+            # 合并音频
+            merged_audio = np.concatenate(all_audio)
+
+            # 计算统计
+            elapsed = time.time() - start_time
+            avg_per_char = elapsed / total_chars if total_chars > 0 else 0
+            print(f"[TTS进度] 全部完成: {total_chars} 字 | {total} 句 | 用时 {elapsed:.2f}s | 平均 {avg_per_char:.3f}s/字")
+
+            # 编码为 base64
+            audio_buffer = io.BytesIO()
+            sf.write(audio_buffer, merged_audio, sample_rate, format='WAV')
+            audio_buffer.seek(0)
+            audio_base64 = base64.b64encode(audio_buffer.read()).decode('utf-8')
+
+            # 发送完成信号和音频
+            done_data = {
+                "done": True,
+                "audio": audio_base64,
+                "sample_rate": sample_rate,
+                "stats": {
+                    "char_count": total_chars,
+                    "sentence_count": total,
+                    "elapsed": round(elapsed, 2),
+                    "avg_per_char": round(avg_per_char, 3),
+                }
+            }
+            yield f"data: {json.dumps(done_data)}\n\n"
+
+        except asyncio.CancelledError:
+            print(f"[TTS进度] 生成被取消 ({completed}/{total})")
+        except GeneratorExit:
+            print(f"[TTS进度] 客户端断开连接 ({completed}/{total})")
+        except Exception as e:
+            import traceback
+            yield f"data: {json.dumps({'error': str(e), 'traceback': traceback.format_exc()})}\n\n"
+
+    return StreamingResponse(
+        generate_with_progress(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -574,6 +732,139 @@ async def voice_design(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/design/progress")
+async def voice_design_progress(
+    request: Request,
+    text: str = Query(..., description="要合成的文本"),
+    language: str = Query("Chinese", description="语言"),
+    instruct: str = Query(..., description="声音描述"),
+):
+    """
+    声音设计 API（带进度）
+
+    - SSE 推送进度: {"progress": {"current": 1, "total": 10, "percent": 10}}
+    - 最后推送完整音频: {"done": true, "audio": "base64..."}
+    - 支持客户端断开时停止生成
+    """
+    import base64
+    import asyncio
+
+    if model_status["design"] != "loaded":
+        raise HTTPException(status_code=503, detail={"error": "model_not_loaded", "model": "design", "status": model_status["design"]})
+
+    if not text:
+        raise HTTPException(status_code=400, detail="text 参数不能为空")
+
+    if not instruct:
+        raise HTTPException(status_code=400, detail="instruct 声音描述不能为空")
+
+    if language not in LANGUAGES:
+        raise HTTPException(status_code=400, detail=f"不支持的语言: {language}")
+
+    async def generate_with_progress():
+        completed = 0
+        total = 0
+        try:
+            # 分句
+            sentences = split_text_to_sentences(text, min_length=10)
+            total = len(sentences)
+            total_chars = len(text)
+
+            print(f"[设计进度] 开始生成: {total_chars} 字 | {total} 句 | 语言: {language}")
+            start_time = time.time()
+
+            # 发送开始信号
+            yield f"data: {json.dumps({'started': True, 'total': total, 'total_chars': total_chars})}\n\n"
+
+            # 收集所有音频
+            all_audio = []
+            sample_rate = SAMPLE_RATE
+            loop = asyncio.get_event_loop()
+
+            for i, sentence in enumerate(sentences):
+                # 检查客户端是否断开
+                if await request.is_disconnected():
+                    print(f"[设计进度] 客户端已断开，停止生成 ({i}/{total})")
+                    return
+
+                # 在线程池中运行阻塞的模型推理
+                wavs, sr = await loop.run_in_executor(
+                    None,
+                    lambda s=sentence: model_design.generate_voice_design(
+                        text=s,
+                        language=language,
+                        instruct=instruct,
+                    )
+                )
+
+                # 生成后再次检查断开
+                if await request.is_disconnected():
+                    print(f"[设计进度] 客户端已断开，停止生成 ({i+1}/{total})")
+                    return
+
+                all_audio.append(wavs[0])
+                sample_rate = sr
+                completed = i + 1
+
+                # 推送进度
+                progress_data = {
+                    "progress": {
+                        "current": i + 1,
+                        "total": total,
+                        "percent": round((i + 1) / total * 100),
+                        "sentence": sentence[:20] + "..." if len(sentence) > 20 else sentence,
+                    }
+                }
+                yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
+                print(f"[设计进度] {i+1}/{total} 完成: {sentence[:30]}...")
+
+            # 合并音频
+            merged_audio = np.concatenate(all_audio)
+
+            # 计算统计
+            elapsed = time.time() - start_time
+            avg_per_char = elapsed / total_chars if total_chars > 0 else 0
+            print(f"[设计进度] 全部完成: {total_chars} 字 | {total} 句 | 用时 {elapsed:.2f}s | 平均 {avg_per_char:.3f}s/字")
+
+            # 编码为 base64
+            audio_buffer = io.BytesIO()
+            sf.write(audio_buffer, merged_audio, sample_rate, format='WAV')
+            audio_buffer.seek(0)
+            audio_base64 = base64.b64encode(audio_buffer.read()).decode('utf-8')
+
+            # 发送完成信号和音频
+            done_data = {
+                "done": True,
+                "audio": audio_base64,
+                "sample_rate": sample_rate,
+                "stats": {
+                    "char_count": total_chars,
+                    "sentence_count": total,
+                    "elapsed": round(elapsed, 2),
+                    "avg_per_char": round(avg_per_char, 3),
+                }
+            }
+            yield f"data: {json.dumps(done_data)}\n\n"
+
+        except asyncio.CancelledError:
+            print(f"[设计进度] 生成被取消 ({completed}/{total})")
+        except GeneratorExit:
+            print(f"[设计进度] 客户端断开连接 ({completed}/{total})")
+        except Exception as e:
+            import traceback
+            yield f"data: {json.dumps({'error': str(e), 'traceback': traceback.format_exc()})}\n\n"
+
+    return StreamingResponse(
+        generate_with_progress(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 @app.get("/voices")
@@ -807,6 +1098,159 @@ async def tts_with_saved_voice(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/voices/{voice_id}/tts/progress")
+async def tts_with_saved_voice_progress(
+    request: Request,
+    voice_id: str,
+    text: str = Query(..., description="要合成的文本"),
+    language: str = Query(None, description="语言（可选，默认使用保存时的语言）"),
+):
+    """
+    使用已保存的克隆声音生成语音（带进度）
+
+    - SSE 推送进度: {"progress": {"current": 1, "total": 10, "percent": 10}}
+    - 最后推送完整音频: {"done": true, "audio": "base64..."}
+    - 支持客户端断开时停止生成
+    """
+    import base64
+    import asyncio
+
+    # 检查模型是否加载
+    if model_status["clone"] != "loaded":
+        raise HTTPException(status_code=503, detail={"error": "model_not_loaded", "model": "clone", "status": model_status["clone"]})
+
+    voice_dir = VOICES_DIR / voice_id
+    if not voice_dir.exists():
+        raise HTTPException(status_code=404, detail="声音不存在")
+
+    meta_file = voice_dir / "meta.json"
+    if not meta_file.exists():
+        raise HTTPException(status_code=404, detail="声音元数据不存在")
+
+    try:
+        with open(meta_file, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+
+        audio_path = voice_dir / meta["audio_file"]
+        if not audio_path.exists():
+            raise HTTPException(status_code=404, detail="参考音频文件不存在")
+
+        # 使用保存时的语言，除非指定了新语言
+        use_language = language if language else meta.get("language", "Chinese")
+        ref_text = meta.get("ref_text", "")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    async def generate_with_progress():
+        completed = 0
+        total = 0
+        try:
+            # 分句
+            sentences = split_text_to_sentences(text, min_length=10)
+            total = len(sentences)
+            total_chars = len(text)
+
+            print(f"[声音库进度] 开始生成: {total_chars} 字 | {total} 句 | 声音: {meta.get('name', voice_id)}")
+            start_time = time.time()
+
+            # 发送开始信号
+            yield f"data: {json.dumps({'started': True, 'total': total, 'total_chars': total_chars})}\n\n"
+
+            # 获取或创建缓存的 voice prompt
+            voice_prompt = get_or_create_voice_prompt(voice_id, str(audio_path), ref_text)
+
+            # 收集所有音频
+            all_audio = []
+            sample_rate = SAMPLE_RATE
+            loop = asyncio.get_event_loop()
+
+            for i, sentence in enumerate(sentences):
+                # 检查客户端是否断开
+                if await request.is_disconnected():
+                    print(f"[声音库进度] 客户端已断开，停止生成 ({i}/{total})")
+                    return
+
+                # 在线程池中运行阻塞的模型推理
+                wavs, sr = await loop.run_in_executor(
+                    None,
+                    lambda s=sentence, vp=voice_prompt: model_clone.generate_voice_clone(
+                        text=s,
+                        language=use_language,
+                        voice_clone_prompt=[vp],
+                    )
+                )
+
+                # 生成后再次检查断开
+                if await request.is_disconnected():
+                    print(f"[声音库进度] 客户端已断开，停止生成 ({i+1}/{total})")
+                    return
+
+                all_audio.append(wavs[0])
+                sample_rate = sr
+                completed = i + 1
+
+                # 推送进度
+                progress_data = {
+                    "progress": {
+                        "current": i + 1,
+                        "total": total,
+                        "percent": round((i + 1) / total * 100),
+                        "sentence": sentence[:20] + "..." if len(sentence) > 20 else sentence,
+                    }
+                }
+                yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
+                print(f"[声音库进度] {i+1}/{total} 完成: {sentence[:30]}...")
+
+            # 合并音频
+            merged_audio = np.concatenate(all_audio)
+
+            # 计算统计
+            elapsed = time.time() - start_time
+            avg_per_char = elapsed / total_chars if total_chars > 0 else 0
+            print(f"[声音库进度] 全部完成: {total_chars} 字 | {total} 句 | 用时 {elapsed:.2f}s | 平均 {avg_per_char:.3f}s/字")
+
+            # 编码为 base64
+            audio_buffer = io.BytesIO()
+            sf.write(audio_buffer, merged_audio, sample_rate, format='WAV')
+            audio_buffer.seek(0)
+            audio_base64 = base64.b64encode(audio_buffer.read()).decode('utf-8')
+
+            # 发送完成信号和音频
+            done_data = {
+                "done": True,
+                "audio": audio_base64,
+                "sample_rate": sample_rate,
+                "stats": {
+                    "char_count": total_chars,
+                    "sentence_count": total,
+                    "elapsed": round(elapsed, 2),
+                    "avg_per_char": round(avg_per_char, 3),
+                }
+            }
+            yield f"data: {json.dumps(done_data)}\n\n"
+
+        except asyncio.CancelledError:
+            print(f"[声音库进度] 生成被取消 ({completed}/{total})")
+        except GeneratorExit:
+            print(f"[声音库进度] 客户端断开连接 ({completed}/{total})")
+        except Exception as e:
+            import traceback
+            yield f"data: {json.dumps({'error': str(e), 'traceback': traceback.format_exc()})}\n\n"
+
+    return StreamingResponse(
+        generate_with_progress(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 @app.get("/voices/{voice_id}/preview")
