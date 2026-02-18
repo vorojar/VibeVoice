@@ -27,7 +27,8 @@ A web application for Text-to-Speech powered by Alibaba's Qwen3-TTS model, featu
 4. **Auto Language Detection** - Automatically detects input language (Chinese/English/Japanese/Korean) and sets the language selector accordingly
 5. **Voice Prompt Caching** - Voice library entries cache their voice prompts to disk, eliminating repeated prompt extraction and significantly speeding up subsequent generations
 6. **MP3 Export** - Convert and download audio as MP3 directly in the browser (in addition to WAV)
-7. **Voice Design** - Create custom voices by describing characteristics in natural language (e.g., "deep male voice with a warm tone")
+7. **Voice Design** - Create custom voices by describing characteristics in natural language (e.g., "deep male voice with a warm tone"), with automatic cross-sentence timbre consistency
+8. **Sentence Editor** - After generation, select, edit, regenerate, delete or insert sentences individually, with full progress feedback during insertion
 
 ## Supported Languages
 
@@ -220,6 +221,55 @@ curl http://localhost:8000/languages
 ├── models/            # Model files (not in repo)
 └── saved_voices/      # Saved cloned voices
 ```
+
+---
+
+## Changelog
+
+### v0.3.0 (2025-02-18)
+
+**Waveform Visualizer**
+- Integrated WaveSurfer.js replacing the simple progress bar, displaying audio waveform
+- Highlights the current sentence during playback, dims already-played sentences
+
+**Sentence Editor**
+- Enter sentence editor view after generation, supporting per-sentence operations
+- Click to select, double-click to edit text
+- Per-sentence regeneration (with spinner feedback), undo support to revert to previous version
+- Per-sentence deletion (with confirmation)
+- Insert new sentences between existing ones (with placeholder row, spinner, disabled actions, auto-play on completion)
+- Inter-sentence pause control (0x–2x slider, adjusts silence duration between sentences in real-time)
+- Per-sentence preview playback (play button for individual sentence audio)
+
+**Session Persistence (IndexedDB)**
+- Generation results (per-sentence audio, text, subtitles, parameters) automatically saved to IndexedDB
+- Auto-restores previous session on page refresh, no need to regenerate
+- Preserves editing state including inter-sentence pause multiplier
+
+**Voice Design Cross-Sentence Timbre Consistency**
+- Multi-sentence generation uses the design model for the first sentence, then automatically switches to clone model + first-sentence prompt for subsequent sentences, ensuring consistent timbre
+- Regeneration and sentence insertion also reuse the cached voice prompt for consistency
+- Single-sentence text has no extra overhead, still uses pure design model
+- Automatic fallback to design model when clone model is not loaded
+
+**Backend**
+- All 4 progress endpoints (tts/clone/design/saved_voice) return per-sentence base64 audio array `sentence_audios`
+- New `POST /regenerate` endpoint for single-sentence regeneration (preset/clone/design/saved_voice modes)
+- Clone session prompt caching mechanism (`clone_session_prompts`) with 1-hour auto-expiry
+
+### v0.2.0
+
+- Sentence-by-sentence progress display, stop generation, subtitle generation
+- Voice prompt disk caching, MP3 export
+- Voice design mode, auto language detection
+
+### v0.1.0
+
+- Preset speaker synthesis (9 voices + emotion control)
+- Voice cloning (record/upload reference audio)
+- Voice library management
+- Multilingual support (10 languages)
+- REST API, bilingual UI (Chinese/English)
 
 ---
 
