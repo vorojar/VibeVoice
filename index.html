@@ -868,7 +868,7 @@
                     clonePromptId,
                     currentSubtitles,
                     pausePaceMultiplier,
-                    inputText: document.getElementById('text-input').value,
+                    inputText: sentenceTexts.length > 0 ? sentenceTexts.join('') : document.getElementById('text-input').value,
                     statsData: lastStatsData,
                     timestamp: Date.now(),
                 }, SESSION_KEY);
@@ -1568,6 +1568,8 @@
             const lastUndoIndex = undoStack.length > 0 ? undoStack[undoStack.length - 1].index : -1;
 
             let html = '<div style="flex:1;min-height:0;overflow-y:auto" class="scrollbar-thin"><ul class="sentence-editor-list">';
+            // 第一句前面的插入按钮
+            html += `<li class="sentence-insert-row"><button class="sentence-insert-btn" onclick="event.stopPropagation(); showInsertForm(0)" title="${t('btn.addSentence')}">＋</button></li>`;
             sentenceTexts.forEach((text, index) => {
                 const isSelected = index === selectedSentenceIndex;
                 const isPreviewPlaying = sentencePreviewIndex === index;
@@ -1696,6 +1698,7 @@
         function editSentenceInstruct(index) {
             const tag = document.getElementById(`sent-instruct-${index}`);
             if (!tag) return;
+            if (tag.querySelector('input')) return; // 已在编辑中
             const currentVal = sentenceInstructs[index] || '';
             tag.innerHTML = `<input type="text" class="sentence-instruct-input"
                 value="${escapeHtml(currentVal)}"
@@ -1820,7 +1823,7 @@
 
             // 找到 afterIndex 对应的插入按钮行
             const items = editorList.children;
-            const insertBtnIndex = afterIndex * 2 - 1;
+            const insertBtnIndex = afterIndex * 2;
             if (insertBtnIndex >= 0 && insertBtnIndex < items.length) {
                 items[insertBtnIndex].insertAdjacentHTML('afterend', formHtml);
             } else {
@@ -1865,7 +1868,7 @@
                     <span>${escapeHtml(newText.length > 30 ? newText.slice(0, 30) + '...' : newText)}</span>
                 </div></li>`;
                 const items = editorList.children;
-                const insertBtnIndex = afterIndex * 2 - 1;
+                const insertBtnIndex = afterIndex * 2;
                 if (insertBtnIndex >= 0 && insertBtnIndex < items.length) {
                     items[insertBtnIndex].insertAdjacentHTML('afterend', placeholderHtml);
                 } else {
@@ -1876,8 +1879,6 @@
             const originalBtnHtml = btn.innerHTML;
             const originalBtnOnclick = btn.onclick;
             btn.disabled = true;
-            btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px"></span><span>${t('status.inserting')}</span>`;
-            statusEl.textContent = t('status.inserting');
 
             try {
                 const formData = new FormData();
@@ -1908,7 +1909,6 @@
                 selectedSentenceIndex = afterIndex;
                 refreshStatsFromSentences();
                 showSentenceEditorView();
-                statusEl.innerHTML = `<span class="text-green-600">${t('status.success')}</span>`;
 
                 const subtitle = currentSubtitles[afterIndex];
                 if (subtitle) {
