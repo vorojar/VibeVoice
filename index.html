@@ -50,35 +50,14 @@
 
         <!-- 主内容区 -->
         <div class="flex-1 flex overflow-hidden">
-            <!-- 左侧边栏 -->
+            <!-- 左侧边栏：历史记录 -->
             <aside class="w-56 bg-cream-dark border-r border-warm-gray flex flex-col flex-shrink-0">
-                <!-- 导航菜单 -->
-                <nav class="p-3 space-y-1">
-                    <div class="nav-item active" onclick="switchMode('preset')" data-mode="preset">
-                        <span>🎤</span>
-                        <span data-i18n="nav.preset">预设说话人</span>
-                    </div>
-                    <div class="nav-item" onclick="switchMode('clone')" data-mode="clone">
-                        <span>🎭</span>
-                        <span data-i18n="nav.clone">语音克隆</span>
-                    </div>
-                    <div class="nav-item" onclick="switchMode('design')" data-mode="design">
-                        <span>✨</span>
-                        <span data-i18n="nav.design">声音设计</span>
-                    </div>
-                </nav>
-
-                <!-- 声音库 (仅克隆模式显示) -->
-                <div id="voice-library-section" class="hidden flex-1 flex flex-col border-t border-warm-gray mt-2">
-                    <div class="p-3 flex items-center justify-between">
-                        <span class="text-sm font-medium text-charcoal/70" data-i18n="clone.voiceLibrary">声音库</span>
-                        <button onclick="loadSavedVoices()" class="text-charcoal/40 hover:text-charcoal text-sm">↻</button>
-                    </div>
-                    <div id="voice-list" class="flex-1 overflow-y-auto scrollbar-thin px-3 pb-3 space-y-2">
-                        <!-- 声音列表 -->
-                    </div>
+                <div class="p-3 flex items-center justify-between">
+                    <span class="text-sm font-medium text-charcoal/70" data-i18n="sidebar.history">历史记录</span>
                 </div>
-
+                <div id="history-list" class="flex-1 overflow-y-auto scrollbar-thin px-3 pb-3 space-y-1">
+                    <!-- 历史记录列表 -->
+                </div>
                 <!-- 底部版本信息 -->
                 <div class="mt-auto p-3 border-t border-warm-gray text-xs text-charcoal/40">
                     Qwen3-TTS v1.0
@@ -171,12 +150,24 @@
             </main>
 
             <!-- 右侧配置面板 -->
-            <aside class="w-72 bg-white border-l border-warm-gray flex flex-col flex-shrink-0 overflow-y-auto scrollbar-thin">
-                <div class="p-4 border-b border-warm-gray">
-                    <h3 class="font-semibold text-charcoal" data-i18n="config.title">配置</h3>
+            <aside class="w-80 bg-white border-l border-warm-gray flex flex-col flex-shrink-0">
+                <!-- Mode tab bar -->
+                <div class="flex border-b border-warm-gray flex-shrink-0">
+                    <button class="mode-tab active" data-mode="preset" onclick="switchMode('preset')">
+                        <span data-i18n="tab.preset">预设</span>
+                    </button>
+                    <button class="mode-tab" data-mode="clone" onclick="switchMode('clone')">
+                        <span data-i18n="tab.clone">克隆</span>
+                    </button>
+                    <button class="mode-tab" data-mode="design" onclick="switchMode('design')">
+                        <span data-i18n="tab.design">设计</span>
+                    </button>
+                    <button class="mode-tab" data-mode="library" onclick="switchMode('library')">
+                        <span data-i18n="tab.library">声音库</span>
+                    </button>
                 </div>
 
-                <div class="p-4 space-y-5">
+                <div class="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-5">
                     <!-- 预设说话人配置 -->
                     <div id="config-preset" class="space-y-4">
                         <div>
@@ -297,6 +288,32 @@
                         <div>
                             <label class="block text-sm text-charcoal/70 mb-2" data-i18n="config.voiceDesc">声音描述 <span class="text-red-500">*</span></label>
                             <textarea id="voice-desc" class="input-field h-24" data-i18n-placeholder="config.voiceDescPlaceholder" placeholder="描述你想要的声音，如：低沉沙哑的中年男声，语速较慢"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- 声音库配置 -->
+                    <div id="config-library" class="hidden space-y-4">
+                        <div>
+                            <label class="block text-sm text-charcoal/70 mb-2" data-i18n="config.language">语言</label>
+                            <select id="language-library" class="input-field">
+                                <option value="Chinese">中文</option>
+                                <option value="English">English</option>
+                                <option value="Japanese">日本語</option>
+                                <option value="Korean">한국어</option>
+                                <option value="German">Deutsch</option>
+                                <option value="French">Français</option>
+                                <option value="Russian">Русский</option>
+                                <option value="Portuguese">Português</option>
+                                <option value="Spanish">Español</option>
+                                <option value="Italian">Italiano</option>
+                            </select>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-medium text-charcoal/70" data-i18n="clone.voiceLibrary">声音库</span>
+                            <button onclick="loadSavedVoices()" class="text-charcoal/40 hover:text-charcoal text-sm">↻</button>
+                        </div>
+                        <div id="voice-list" class="space-y-2">
+                            <!-- 声音列表 -->
                         </div>
                     </div>
                 </div>

@@ -42,11 +42,6 @@ function renderVoiceList() {
 function selectVoice(voiceId) {
   selectedVoiceId = selectedVoiceId === voiceId ? null : voiceId;
   renderVoiceList();
-
-  // 选中声音库时清除录音/上传
-  if (selectedVoiceId) {
-    clearAudio();
-  }
 }
 
 function previewVoice(voiceId) {
@@ -122,6 +117,7 @@ async function saveVoice() {
     statusEl.textContent = t("status.saved");
     document.getElementById("voice-name").value = "";
     await loadSavedVoices();
+    switchMode("library");
   } catch (error) {
     statusEl.textContent = t("status.failed") + ": " + error.message;
   }
@@ -148,12 +144,6 @@ async function toggleRecording() {
         stream.getTracks().forEach((track) => track.stop());
         recordedBlob = new Blob(audioChunks, { type: "audio/webm" });
         selectedFile = null;
-
-        // 取消声音库选中
-        if (selectedVoiceId) {
-          selectedVoiceId = null;
-          renderVoiceList();
-        }
 
         showAudioPreview(URL.createObjectURL(recordedBlob));
 
@@ -190,13 +180,6 @@ function handleFileSelect(input) {
   if (file) {
     selectedFile = file;
     recordedBlob = null;
-
-    // 取消声音库选中
-    if (selectedVoiceId) {
-      selectedVoiceId = null;
-      renderVoiceList();
-    }
-
     showAudioPreview(URL.createObjectURL(file));
   }
 }
@@ -204,6 +187,7 @@ function handleFileSelect(input) {
 function showAudioPreview(url) {
   document.getElementById("audio-preview-section").classList.remove("hidden");
   document.getElementById("audio-preview").src = url;
+  document.getElementById("save-voice-section").classList.remove("hidden");
 }
 
 function clearAudio() {
@@ -212,4 +196,5 @@ function clearAudio() {
   document.getElementById("audio-preview-section").classList.add("hidden");
   document.getElementById("audio-preview").src = "";
   document.getElementById("audio-file").value = "";
+  document.getElementById("save-voice-section").classList.add("hidden");
 }

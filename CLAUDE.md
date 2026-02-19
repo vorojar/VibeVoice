@@ -1,5 +1,5 @@
 # CLAUDE.md
-
+严格遵守，过程中任何回答，必须使用中文。
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview

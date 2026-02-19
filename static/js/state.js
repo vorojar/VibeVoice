@@ -60,6 +60,72 @@ function refreshStatsFromSentences() {
     `${charCount} <span data-i18n="stats.chars">${t("stats.chars")}</span>`;
 }
 
+// 生成历史
+let generationHistory = [];
+
+function loadHistory() {
+  try {
+    generationHistory = JSON.parse(localStorage.getItem("vibevoice_history") || "[]");
+  } catch (e) { generationHistory = []; }
+}
+
+function saveToHistory(text, mode) {
+  generationHistory.unshift({
+    id: Date.now().toString(),
+    text: text.slice(0, 200),
+    mode,
+    timestamp: Date.now(),
+  });
+  if (generationHistory.length > 50) generationHistory.length = 50;
+  localStorage.setItem("vibevoice_history", JSON.stringify(generationHistory));
+  renderHistory();
+}
+
+function renderHistory() {
+  const container = document.getElementById("history-list");
+  if (!container) return;
+  if (generationHistory.length === 0) {
+    container.innerHTML = `<div class="text-center text-charcoal/50 text-sm py-4">${t("history.empty")}</div>`;
+    return;
+  }
+  container.innerHTML = generationHistory.map(item => {
+    const preview = item.text.length > 40 ? item.text.slice(0, 40) + "..." : item.text;
+    const modeKey = "tab." + (item.mode === "saved_voice" ? "library" : item.mode);
+    const modeLabel = t(modeKey);
+    const timeStr = formatTimeAgo(item.timestamp);
+    return `<div class="history-item" onclick="loadHistoryItem('${item.id}')">
+      <div class="text-sm truncate" style="color:#2d3748">${escapeHtmlSimple(preview)}</div>
+      <div class="flex items-center justify-between mt-1">
+        <span class="text-xs" style="color:#a0aec0">${modeLabel}</span>
+        <span class="text-xs" style="color:#cbd5e0">${timeStr}</span>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function loadHistoryItem(id) {
+  const item = generationHistory.find(h => h.id === id);
+  if (!item) return;
+  document.getElementById("text-input").value = item.text;
+  updateCharCount();
+}
+
+function formatTimeAgo(ts) {
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "<1m";
+  if (mins < 60) return mins + "m";
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours + "h";
+  const days = Math.floor(hours / 24);
+  return days + "d";
+}
+
+// 简单HTML转义（不依赖DOM，state.js加载时editor.js的escapeHtml尚未定义）
+function escapeHtmlSimple(text) {
+  return text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
 // 句间停顿
 let pausePaceMultiplier = 1.0;
 let decodedPcmCache = []; // 缓存解码后的 PCM，避免重复 atob

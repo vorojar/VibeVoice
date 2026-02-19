@@ -2,37 +2,31 @@
 function switchMode(mode) {
   currentMode = mode;
 
-  // 更新导航状态
-  document.querySelectorAll(".nav-item").forEach((item) => {
-    item.classList.toggle("active", item.dataset.mode === mode);
+  // 更新 tab 状态
+  document.querySelectorAll(".mode-tab").forEach((tab) => {
+    tab.classList.toggle("active", tab.dataset.mode === mode);
   });
 
   // 显示/隐藏配置面板
-  document
-    .getElementById("config-preset")
-    .classList.toggle("hidden", mode !== "preset");
-  document
-    .getElementById("config-clone")
-    .classList.toggle("hidden", mode !== "clone");
-  document
-    .getElementById("config-design")
-    .classList.toggle("hidden", mode !== "design");
+  document.getElementById("config-preset").classList.toggle("hidden", mode !== "preset");
+  document.getElementById("config-clone").classList.toggle("hidden", mode !== "clone");
+  document.getElementById("config-design").classList.toggle("hidden", mode !== "design");
+  document.getElementById("config-library").classList.toggle("hidden", mode !== "library");
 
-  // 显示/隐藏声音库
-  document
-    .getElementById("voice-library-section")
-    .classList.toggle("hidden", mode !== "clone");
-
-  // 切换到 clone 模式时刷新声音库列表（更新选中状态）
-  if (mode === "clone") {
+  // 切换到声音库时刷新列表
+  if (mode === "library") {
     renderVoiceList();
   } else {
-    // 离开 clone 模式时清除选中
+    // 离开声音库时清除选中
     selectedVoiceId = null;
   }
 
-  // 隐藏保存区域（播放器保持不变）
-  document.getElementById("save-voice-section").classList.add("hidden");
+  // 保存区域：clone 模式下有音频时显示，其他模式隐藏
+  if (mode === "clone" && (recordedBlob || selectedFile)) {
+    document.getElementById("save-voice-section").classList.remove("hidden");
+  } else {
+    document.getElementById("save-voice-section").classList.add("hidden");
+  }
 }
 
 // ===== 页面切换 =====
@@ -83,7 +77,7 @@ function detectAndSetLanguage(text) {
   else if (counts.zh > total * 0.3) lang = "Chinese";
   else if (counts.en > total * 0.5) lang = "English";
   if (lang) {
-    ["language-preset", "language-clone", "language-design"].forEach((id) => {
+    ["language-preset", "language-clone", "language-design", "language-library"].forEach((id) => {
       document.getElementById(id).value = lang;
     });
   }

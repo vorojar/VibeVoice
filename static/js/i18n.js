@@ -65,6 +65,13 @@ const i18n = {
     "btn.backToInput": "返回编辑",
     "btn.newProject": "新建",
     "confirm.newProject": "清空当前内容，重新开始？",
+    "tab.preset": "预设",
+    "tab.clone": "克隆",
+    "tab.design": "设计",
+    "tab.library": "声音库",
+    "sidebar.history": "历史记录",
+    "history.empty": "暂无历史记录",
+    "status.selectVoice": "请选择一个声音",
   },
   en: {
     "nav.preset": "Preset Voices",
@@ -131,6 +138,13 @@ const i18n = {
     "btn.backToInput": "Back to input",
     "btn.newProject": "New",
     "confirm.newProject": "Clear current content and start over?",
+    "tab.preset": "Preset",
+    "tab.clone": "Clone",
+    "tab.design": "Design",
+    "tab.library": "Library",
+    "sidebar.history": "History",
+    "history.empty": "No history yet",
+    "status.selectVoice": "Please select a voice",
   },
 };
 

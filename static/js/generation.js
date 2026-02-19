@@ -359,13 +359,14 @@ async function generate() {
   }
 
   // 验证克隆模式
-  if (
-    currentMode === "clone" &&
-    !selectedVoiceId &&
-    !recordedBlob &&
-    !selectedFile
-  ) {
+  if (currentMode === "clone" && !recordedBlob && !selectedFile) {
     statusEl.textContent = t("status.needAudio");
+    return;
+  }
+
+  // 验证声音库模式
+  if (currentMode === "library" && !selectedVoiceId) {
+    statusEl.textContent = t("status.selectVoice");
     return;
   }
 
@@ -393,7 +394,12 @@ async function generate() {
   clearSession(); // 清除持久化
 
   // 确保模型加载
-  const modelType = currentMode === "preset" ? "custom" : currentMode;
+  const modelType =
+    currentMode === "preset"
+      ? "custom"
+      : currentMode === "library"
+        ? "clone"
+        : currentMode;
   const modelReady = await ensureModelLoaded(modelType);
   if (!modelReady) {
     btn.disabled = false;
@@ -446,6 +452,47 @@ async function generate() {
       }
       document.getElementById("save-voice-section").classList.add("hidden");
 
+      saveToHistory(text, "preset");
+      btn.disabled = false;
+      btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t("btn.previewSentences")}</span>`;
+      return;
+    } else if (currentMode === "library") {
+      const language = document.getElementById("language-library").value;
+
+      lastGenerateParams = {
+        mode: "saved_voice",
+        language,
+        voice_id: selectedVoiceId,
+      };
+
+      const params = new URLSearchParams({ text });
+      if (language) params.append("language", language);
+
+      const result = await generateWithProgress(
+        `/voices/${selectedVoiceId}/tts/progress?${params.toString()}`,
+        btn,
+        statusEl,
+      );
+      if (!result) return;
+
+      audioElement.src = result.audioUrl;
+      stats = result.stats;
+
+      loadWaveform();
+      audioElement.play();
+      document.getElementById("player-section").classList.remove("hidden");
+
+      if (stats) {
+        lastStatsData = stats;
+        renderStats();
+      }
+
+      if (sentenceTexts.length <= 1) {
+        statusEl.innerHTML = `<span class="text-green-600">${t("status.success")}</span>`;
+      }
+      document.getElementById("save-voice-section").classList.add("hidden");
+
+      saveToHistory(text, "saved_voice");
       btn.disabled = false;
       btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t("btn.previewSentences")}</span>`;
       return;
@@ -453,88 +500,44 @@ async function generate() {
       const language = document.getElementById("language-clone").value;
       const refText = document.getElementById("ref-text").value.trim();
 
-      if (selectedVoiceId) {
-        lastGenerateParams = {
-          mode: "saved_voice",
-          language,
-          voice_id: selectedVoiceId,
-        };
+      lastGenerateParams = { mode: "clone", language, clone_prompt_id: null };
 
-        // 使用声音库的分句进度生成
-        const params = new URLSearchParams({ text });
-        if (language) params.append("language", language);
+      const audioFile = recordedBlob
+        ? new File([recordedBlob], "recording.webm", { type: "audio/webm" })
+        : selectedFile;
+      const formData = new FormData();
+      formData.append("audio", audioFile);
+      formData.append("text", text);
+      formData.append("language", language);
+      formData.append("ref_text", refText);
 
-        const result = await generateWithProgress(
-          `/voices/${selectedVoiceId}/tts/progress?${params.toString()}`,
-          btn,
-          statusEl,
-        );
-        if (!result) return;
+      const result = await generateWithProgressPost(
+        "/clone/progress",
+        formData,
+        btn,
+        statusEl,
+      );
+      if (!result) return;
 
-        audioElement.src = result.audioUrl;
-        stats = result.stats;
+      audioElement.src = result.audioUrl;
+      stats = result.stats;
 
-        loadWaveform();
-        audioElement.play();
-        document.getElementById("player-section").classList.remove("hidden");
+      loadWaveform();
+      audioElement.play();
+      document.getElementById("player-section").classList.remove("hidden");
 
-        if (stats) {
-          lastStatsData = stats;
-          renderStats();
-        }
-
-        if (sentenceTexts.length <= 1) {
-          statusEl.innerHTML = `<span class="text-green-600">${t("status.success")}</span>`;
-        }
-        document.getElementById("save-voice-section").classList.add("hidden");
-
-        btn.disabled = false;
-        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t("btn.previewSentences")}</span>`;
-        return;
-      } else {
-        lastGenerateParams = { mode: "clone", language, clone_prompt_id: null };
-
-        // 使用克隆进度生成
-        const audioFile = recordedBlob
-          ? new File([recordedBlob], "recording.webm", { type: "audio/webm" })
-          : selectedFile;
-        const formData = new FormData();
-        formData.append("audio", audioFile);
-        formData.append("text", text);
-        formData.append("language", language);
-        formData.append("ref_text", refText);
-
-        const result = await generateWithProgressPost(
-          "/clone/progress",
-          formData,
-          btn,
-          statusEl,
-        );
-        if (!result) return;
-
-        audioElement.src = result.audioUrl;
-        stats = result.stats;
-
-        loadWaveform();
-        audioElement.play();
-        document.getElementById("player-section").classList.remove("hidden");
-
-        if (stats) {
-          lastStatsData = stats;
-          renderStats();
-        }
-
-        if (sentenceTexts.length <= 1) {
-          statusEl.innerHTML = `<span class="text-green-600">${t("status.success")}</span>`;
-        }
-        document
-          .getElementById("save-voice-section")
-          .classList.remove("hidden");
-
-        btn.disabled = false;
-        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t("btn.previewSentences")}</span>`;
-        return;
+      if (stats) {
+        lastStatsData = stats;
+        renderStats();
       }
+
+      if (sentenceTexts.length <= 1) {
+        statusEl.innerHTML = `<span class="text-green-600">${t("status.success")}</span>`;
+      }
+      saveToHistory(text, "clone");
+      btn.disabled = false;
+      btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t("btn.previewSentences")}</span>`;
+      return;
     } else if (currentMode === "design") {
       const language = document.getElementById("language-design").value;
       const desc = document.getElementById("voice-desc").value.trim();
@@ -568,6 +571,7 @@ async function generate() {
       }
       document.getElementById("save-voice-section").classList.add("hidden");
 
+      saveToHistory(text, "design");
       btn.disabled = false;
       btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t("btn.previewSentences")}</span>`;
       return;
@@ -604,12 +608,6 @@ async function generate() {
 
     statusEl.innerHTML = `<span class="text-green-600">${t("status.success")}</span>`;
 
-    // 克隆模式显示保存选项（仅非声音库）
-    if (currentMode === "clone" && !selectedVoiceId) {
-      document.getElementById("save-voice-section").classList.remove("hidden");
-    } else {
-      document.getElementById("save-voice-section").classList.add("hidden");
-    }
   } catch (error) {
     statusEl.innerHTML = `<span class="text-red-600">${t("status.failed")}: ${error.message}</span>`;
   } finally {
