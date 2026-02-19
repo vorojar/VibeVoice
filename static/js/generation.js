@@ -377,15 +377,14 @@ async function generate() {
     return;
   }
 
-  // 验证克隆模式
-  if (currentMode === "clone" && !recordedBlob && !selectedFile) {
-    statusEl.textContent = t("status.needAudio");
-    return;
-  }
-
-  // 验证声音库模式
-  if (currentMode === "library" && !selectedVoiceId) {
-    statusEl.textContent = t("status.selectVoice");
+  // 验证克隆模式：需要选中声音库声音，或有录音/上传
+  if (
+    currentMode === "clone" &&
+    !selectedVoiceId &&
+    !recordedBlob &&
+    !selectedFile
+  ) {
+    statusEl.textContent = t("status.needVoiceOrAudio");
     return;
   }
 
@@ -414,12 +413,7 @@ async function generate() {
   clearSession(); // 清除持久化
 
   // 确保模型加载
-  const modelType =
-    currentMode === "preset"
-      ? "custom"
-      : currentMode === "library"
-        ? "clone"
-        : currentMode;
+  const modelType = currentMode === "preset" ? "custom" : currentMode;
   const modelReady = await ensureModelLoaded(modelType);
   if (!modelReady) {
     hideProgressView();
@@ -477,8 +471,9 @@ async function generate() {
       btn.disabled = false;
       btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t("btn.previewSentences")}</span>`;
       return;
-    } else if (currentMode === "library") {
-      const language = document.getElementById("language-library").value;
+    } else if (currentMode === "clone" && selectedVoiceId) {
+      // 选中声音库声音 → saved_voice 路径
+      const language = document.getElementById("language-clone").value;
 
       lastGenerateParams = {
         mode: "saved_voice",
@@ -511,7 +506,6 @@ async function generate() {
       if (sentenceTexts.length <= 1) {
         statusEl.innerHTML = `<span class="text-green-600">${t("status.success")}</span>`;
       }
-      document.getElementById("save-voice-section").classList.add("hidden");
 
       saveToHistory(text, "saved_voice");
       btn.disabled = false;
@@ -647,20 +641,21 @@ function buildLastGenerateParams() {
       language,
       instruct: instruct || null,
     };
-  } else if (currentMode === "library") {
-    const language = document.getElementById("language-library").value;
-    lastGenerateParams = {
-      mode: "saved_voice",
-      language,
-      voice_id: selectedVoiceId,
-    };
   } else if (currentMode === "clone") {
     const language = document.getElementById("language-clone").value;
-    lastGenerateParams = {
-      mode: "clone",
-      language,
-      clone_prompt_id: clonePromptId || null,
-    };
+    if (selectedVoiceId) {
+      lastGenerateParams = {
+        mode: "saved_voice",
+        language,
+        voice_id: selectedVoiceId,
+      };
+    } else {
+      lastGenerateParams = {
+        mode: "clone",
+        language,
+        clone_prompt_id: clonePromptId || null,
+      };
+    }
   } else if (currentMode === "design") {
     const language = document.getElementById("language-design").value;
     const desc = document.getElementById("voice-desc").value.trim();

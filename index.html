@@ -167,9 +167,6 @@
                     <button class="mode-tab" data-mode="design" onclick="switchMode('design')">
                         <span data-i18n="tab.design">设计</span>
                     </button>
-                    <button class="mode-tab" data-mode="library" onclick="switchMode('library')">
-                        <span data-i18n="tab.library">声音库</span>
-                    </button>
                 </div>
 
                 <div class="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-5">
@@ -228,49 +225,68 @@
                             </select>
                         </div>
 
-                        <!-- 音频来源 -->
+                        <!-- 声音库列表 -->
                         <div>
-                            <label class="block text-sm text-charcoal/70 mb-2" data-i18n="config.refAudio">参考音频</label>
-                            <div class="space-y-2">
-                                <!-- 录音按钮 -->
-                                <button id="record-btn" onclick="toggleRecording()" class="w-full flex items-center justify-center gap-2 py-3 bg-cream-dark border border-warm-gray rounded-lg hover:bg-warm-gray transition-colors">
-                                    <span id="record-icon">🎙️</span>
-                                    <span id="record-text" data-i18n="btn.record">录音</span>
-                                    <span id="record-timer" class="hidden text-accent font-mono">00:00</span>
-                                </button>
-                                <!-- 上传按钮 -->
-                                <label class="w-full flex items-center justify-center gap-2 py-3 bg-cream-dark border border-warm-gray rounded-lg hover:bg-warm-gray transition-colors cursor-pointer">
-                                    <span>📁</span>
-                                    <span data-i18n="btn.upload">上传文件</span>
-                                    <input type="file" id="audio-file" accept="audio/*" class="hidden" onchange="handleFileSelect(this)">
-                                </label>
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm font-medium text-charcoal/70" data-i18n="clone.voiceLibrary">声音库</span>
+                                <button onclick="loadSavedVoices()" class="text-charcoal/40 hover:text-charcoal text-sm">↻</button>
                             </div>
-                            <!-- 音频预览 -->
-                            <div id="audio-preview-section" class="hidden mt-3 p-3 bg-cream-dark rounded-lg">
-                                <div class="flex items-center justify-between">
-                                    <span class="text-sm text-charcoal/70" data-i18n="config.preview">音频预览</span>
-                                    <button onclick="clearAudio()" class="text-charcoal/50 hover:text-red-600 text-sm">✕</button>
+                            <div id="voice-list" class="space-y-2 mt-2">
+                                <!-- 声音列表 -->
+                            </div>
+                        </div>
+
+                        <!-- 新建克隆声音（折叠） -->
+                        <details id="clone-new-section">
+                            <summary class="cursor-pointer text-sm font-medium text-charcoal/70 select-none py-1">
+                                ＋ <span data-i18n="clone.newVoice">新建克隆声音</span>
+                            </summary>
+                            <div class="space-y-4 mt-3">
+                                <!-- 音频来源 -->
+                                <div>
+                                    <label class="block text-sm text-charcoal/70 mb-2" data-i18n="config.refAudio">参考音频</label>
+                                    <div class="space-y-2">
+                                        <!-- 录音按钮 -->
+                                        <button id="record-btn" onclick="toggleRecording()" class="w-full flex items-center justify-center gap-2 py-3 bg-cream-dark border border-warm-gray rounded-lg hover:bg-warm-gray transition-colors">
+                                            <span id="record-icon">🎙️</span>
+                                            <span id="record-text" data-i18n="btn.record">录音</span>
+                                            <span id="record-timer" class="hidden text-accent font-mono">00:00</span>
+                                        </button>
+                                        <!-- 上传按钮 -->
+                                        <label class="w-full flex items-center justify-center gap-2 py-3 bg-cream-dark border border-warm-gray rounded-lg hover:bg-warm-gray transition-colors cursor-pointer">
+                                            <span>📁</span>
+                                            <span data-i18n="btn.upload">上传文件</span>
+                                            <input type="file" id="audio-file" accept="audio/*" class="hidden" onchange="handleFileSelect(this)">
+                                        </label>
+                                    </div>
+                                    <!-- 音频预览 -->
+                                    <div id="audio-preview-section" class="hidden mt-3 p-3 bg-cream-dark rounded-lg">
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-sm text-charcoal/70" data-i18n="config.preview">音频预览</span>
+                                            <button onclick="clearAudio()" class="text-charcoal/50 hover:text-red-600 text-sm">✕</button>
+                                        </div>
+                                        <audio id="audio-preview" controls class="w-full mt-2 h-8"></audio>
+                                    </div>
                                 </div>
-                                <audio id="audio-preview" controls class="w-full mt-2 h-8"></audio>
-                            </div>
-                        </div>
 
-                        <div>
-                            <label class="block text-sm text-charcoal/70 mb-2">
-                                <span data-i18n="config.refText">参考文本</span>
-                                <span class="text-charcoal/50" data-i18n="config.refTextHint">(可选，提高质量)</span>
-                            </label>
-                            <textarea id="ref-text" class="input-field h-20" data-i18n-placeholder="config.refTextPlaceholder" placeholder="参考音频的文字内容"></textarea>
-                        </div>
+                                <div>
+                                    <label class="block text-sm text-charcoal/70 mb-2">
+                                        <span data-i18n="config.refText">参考文本</span>
+                                        <span class="text-charcoal/50" data-i18n="config.refTextHint">(可选，提高质量)</span>
+                                    </label>
+                                    <textarea id="ref-text" class="input-field h-20" data-i18n-placeholder="config.refTextPlaceholder" placeholder="参考音频的文字内容"></textarea>
+                                </div>
 
-                        <!-- 保存声音 -->
-                        <div id="save-voice-section" class="hidden pt-4 border-t border-warm-gray">
-                            <label class="block text-sm text-charcoal/70 mb-2" data-i18n="config.saveName">保存到声音库</label>
-                            <div class="flex gap-2">
-                                <input type="text" id="voice-name" class="input-field flex-1" data-i18n-placeholder="config.saveNamePlaceholder" placeholder="声音名称">
-                                <button onclick="saveVoice()" class="px-4 py-2 bg-cream-dark border border-warm-gray rounded-lg hover:bg-warm-gray transition-colors text-sm" data-i18n="btn.save">保存</button>
+                                <!-- 保存声音 -->
+                                <div id="save-voice-section" class="hidden pt-4 border-t border-warm-gray">
+                                    <label class="block text-sm text-charcoal/70 mb-2" data-i18n="config.saveName">保存到声音库</label>
+                                    <div class="flex gap-2">
+                                        <input type="text" id="voice-name" class="input-field flex-1" data-i18n-placeholder="config.saveNamePlaceholder" placeholder="声音名称">
+                                        <button onclick="saveVoice()" class="px-4 py-2 bg-cream-dark border border-warm-gray rounded-lg hover:bg-warm-gray transition-colors text-sm" data-i18n="btn.save">保存</button>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
+                        </details>
                     </div>
 
                     <!-- 声音设计配置 -->
@@ -296,31 +312,6 @@
                         </div>
                     </div>
 
-                    <!-- 声音库配置 -->
-                    <div id="config-library" class="hidden space-y-4">
-                        <div>
-                            <label class="block text-sm text-charcoal/70 mb-2" data-i18n="config.language">语言</label>
-                            <select id="language-library" class="input-field">
-                                <option value="Chinese">中文</option>
-                                <option value="English">English</option>
-                                <option value="Japanese">日本語</option>
-                                <option value="Korean">한국어</option>
-                                <option value="German">Deutsch</option>
-                                <option value="French">Français</option>
-                                <option value="Russian">Русский</option>
-                                <option value="Portuguese">Português</option>
-                                <option value="Spanish">Español</option>
-                                <option value="Italian">Italiano</option>
-                            </select>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <span class="text-sm font-medium text-charcoal/70" data-i18n="clone.voiceLibrary">声音库</span>
-                            <button onclick="loadSavedVoices()" class="text-charcoal/40 hover:text-charcoal text-sm">↻</button>
-                        </div>
-                        <div id="voice-list" class="space-y-2">
-                            <!-- 声音列表 -->
-                        </div>
-                    </div>
                 </div>
             </aside>
         </div>

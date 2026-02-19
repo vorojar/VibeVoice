@@ -42,6 +42,10 @@ function renderVoiceList() {
 function selectVoice(voiceId) {
   selectedVoiceId = selectedVoiceId === voiceId ? null : voiceId;
   renderVoiceList();
+  // 刷新句子编辑器中的声音标签
+  if (isPreviewing || sentenceAudios.length > 0) {
+    showSentenceEditorView();
+  }
 }
 
 function previewVoice(voiceId) {
@@ -114,10 +118,20 @@ async function saveVoice() {
       body: formData,
     });
     if (!response.ok) throw new Error("Save failed");
+    const result = await response.json();
     statusEl.textContent = t("status.saved");
     document.getElementById("voice-name").value = "";
     await loadSavedVoices();
-    switchMode("library");
+    // 选中新保存的声音
+    if (result && result.voice_id) {
+      selectedVoiceId = result.voice_id;
+    } else if (savedVoices.length > 0) {
+      selectedVoiceId = savedVoices[savedVoices.length - 1].id;
+    }
+    renderVoiceList();
+    // 折叠新建区域
+    const details = document.getElementById("clone-new-section");
+    if (details) details.removeAttribute("open");
   } catch (error) {
     statusEl.textContent = t("status.failed") + ": " + error.message;
   }

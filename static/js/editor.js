@@ -11,21 +11,23 @@ function switchMode(mode) {
   document.getElementById("config-preset").classList.toggle("hidden", mode !== "preset");
   document.getElementById("config-clone").classList.toggle("hidden", mode !== "clone");
   document.getElementById("config-design").classList.toggle("hidden", mode !== "design");
-  document.getElementById("config-library").classList.toggle("hidden", mode !== "library");
 
-  // 切换到声音库时刷新列表
-  if (mode === "library") {
+  // 切换到克隆时刷新声音库列表
+  if (mode === "clone") {
     renderVoiceList();
   } else {
-    // 离开声音库时清除选中
+    // 离开克隆时清除选中
     selectedVoiceId = null;
   }
 
-  // 保存区域：clone 模式下有音频时显示，其他模式隐藏
-  if (mode === "clone" && (recordedBlob || selectedFile)) {
-    document.getElementById("save-voice-section").classList.remove("hidden");
-  } else {
-    document.getElementById("save-voice-section").classList.add("hidden");
+  // 保存区域：clone 模式下有音频时显示
+  const saveSection = document.getElementById("save-voice-section");
+  if (saveSection) {
+    if (mode === "clone" && (recordedBlob || selectedFile)) {
+      saveSection.classList.remove("hidden");
+    } else {
+      saveSection.classList.add("hidden");
+    }
   }
 
   // 刷新句子编辑器（情感标签显隐跟随当前模式）
@@ -82,7 +84,7 @@ function detectAndSetLanguage(text) {
   else if (counts.zh > total * 0.3) lang = "Chinese";
   else if (counts.en > total * 0.5) lang = "English";
   if (lang) {
-    ["language-preset", "language-clone", "language-design", "language-library"].forEach((id) => {
+    ["language-preset", "language-clone", "language-design"].forEach((id) => {
       document.getElementById(id).value = lang;
     });
   }
@@ -218,7 +220,7 @@ function showSentenceEditorView() {
       : globalIsPreset;
 
     // 声音标签（非生成中时始终显示）
-    const voiceLabel = voiceConfig ? voiceConfig.label : t("label.voiceDefault");
+    const voiceLabel = voiceConfig ? voiceConfig.label : getDefaultVoiceLabel();
     const voiceOverrideClass = voiceConfig ? " voice-override" : "";
     const voiceTag = !generating
       ? `<div class="sentence-voice-tag" id="sent-voice-${index}" onclick="event.stopPropagation(); editSentenceVoice(${index})"><span class="sentence-voice-label">${t("label.voiceLabel")}:</span> <span class="sentence-voice-value${voiceOverrideClass}">${escapeHtml(voiceLabel)}</span> <span class="sentence-voice-edit">✏</span></div>`
@@ -454,7 +456,7 @@ function getDefaultVoiceLabel() {
       const sel = document.getElementById("speaker");
       return sel ? sel.options[sel.selectedIndex].text : "Vivian";
     }
-    if (currentMode === "library") {
+    if (currentMode === "clone" && selectedVoiceId) {
       const v = savedVoices.find(v => v.id === selectedVoiceId);
       return v ? v.name : t("label.voiceDefault");
     }
