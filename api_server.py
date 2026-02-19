@@ -1,18 +1,33 @@
 import io
 import os
 import json
-import torch
 import tempfile
 import time
 from fastapi import FastAPI, Query, HTTPException, UploadFile, File, Form, Request
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from qwen_tts import Qwen3TTSModel
 import soundfile as sf
 import numpy as np
 from pathlib import Path
 import shutil
+
+# 延迟导入：torch 和 qwen_tts 启动开销大，首次使用时才加载
+torch = None
+Qwen3TTSModel = None
+
+def _ensure_torch():
+    global torch
+    if torch is None:
+        import torch as _torch
+        torch = _torch
+
+def _ensure_qwen_tts():
+    global Qwen3TTSModel
+    _ensure_torch()
+    if Qwen3TTSModel is None:
+        from qwen_tts import Qwen3TTSModel as _cls
+        Qwen3TTSModel = _cls
 
 
 def get_generation_stats(text: str, start_time: float, mode: str = "TTS") -> dict:
@@ -81,6 +96,7 @@ clone_session_prompts = {}
 
 def save_voice_prompt(voice_id: str, prompt_item):
     """将 VoiceClonePromptItem 保存到磁盘"""
+    _ensure_torch()
     voice_dir = VOICES_DIR / voice_id
     prompt_path = voice_dir / "prompt.pt"
 
@@ -98,6 +114,7 @@ def save_voice_prompt(voice_id: str, prompt_item):
 
 def load_voice_prompt(voice_id: str):
     """从磁盘加载 VoiceClonePromptItem"""
+    _ensure_torch()
     from qwen_tts.inference.qwen3_tts_model import VoiceClonePromptItem
 
     voice_dir = VOICES_DIR / voice_id
@@ -163,6 +180,7 @@ LANGUAGES = ["Chinese", "English", "Japanese", "Korean", "German", "French", "Ru
 
 def get_device_config():
     """自动检测最佳设备和数据类型"""
+    _ensure_torch()
     if torch.cuda.is_available():
         return "cuda:0", torch.bfloat16
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -180,10 +198,12 @@ def load_model_sync(model_type: str):
 
     model_status[model_type] = "loading"
     config = MODEL_CONFIGS[model_type]
-    device_map, dtype = get_device_config()
-    print(f"正在加载 {config['name']} 模型... (设备: {device_map}, 精度: {dtype})")
 
     try:
+        _ensure_qwen_tts()
+        device_map, dtype = get_device_config()
+        print(f"正在加载 {config['name']} 模型... (设备: {device_map}, 精度: {dtype})")
+
         model = Qwen3TTSModel.from_pretrained(
             config["path"],
             device_map=device_map,
@@ -348,16 +368,16 @@ def split_text_to_sentences(text: str, min_length: int = 10) -> list:
     - 支持连续标点 ???、!!!、。。。
     - 短句自动合并，直到达到 min_length
     """
-    # 匹配一个或多个连续的中英文标点
-    pattern = r'([。！？；.!?;]+|\n)'
+    # 匹配一个或多个连续的中英文标点（含闭合引号），或冒号引出引语，或换行
+    pattern = r'([。！？；.!?;][。！？；.!?;"\u201C\u201D\u300C\u300D\'\u2018\u2019]*|[：:](?=["\u201C\u201D\u300C\u300D\'\u2018\u2019])|\n)'
     parts = re.split(pattern, text)
 
-    # 先按标点分成基本句子
+    # split 带捕获组：奇数索引是分隔符，用索引判定（避免 lookahead 在隔离部分失效）
     raw_sentences = []
     current = ""
-    for part in parts:
+    for i, part in enumerate(parts):
         current += part
-        if re.match(pattern, part):
+        if i % 2 == 1:
             if current.strip():
                 raw_sentences.append(current.strip())
             current = ""
@@ -368,12 +388,12 @@ def split_text_to_sentences(text: str, min_length: int = 10) -> list:
     if not raw_sentences:
         return [text] if text.strip() else []
 
-    # 合并过短的句子
+    # 合并过短的句子（以冒号结尾的句子强制独立，用于旁白/引语分离）
     merged = []
     buffer = ""
     for sentence in raw_sentences:
         buffer += sentence
-        if len(buffer) >= min_length:
+        if len(buffer) >= min_length or buffer.endswith('：') or buffer.endswith(':'):
             merged.append(buffer)
             buffer = ""
 

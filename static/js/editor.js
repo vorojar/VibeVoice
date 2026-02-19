@@ -85,14 +85,15 @@ function detectAndSetLanguage(text) {
 
 // 前端分句（与后端保持一致）
 function splitTextToSentences(text, minLength = 10) {
-  const pattern = /([。！？；.!?;]+|\n)/;
+  const pattern = /([。！？；.!?;][。！？；.!?;"\u201C\u201D\u300C\u300D'\u2018\u2019]*|[：:](?=["\u201C\u201D\u300C\u300D'\u2018\u2019])|\n)/;
   const parts = text.split(pattern);
 
+  // split 带捕获组：奇数索引是分隔符，用索引判定（避免 lookahead 在隔离部分失效）
   const rawSentences = [];
   let current = "";
-  for (const part of parts) {
-    current += part;
-    if (pattern.test(part)) {
+  for (let i = 0; i < parts.length; i++) {
+    current += parts[i];
+    if (i % 2 === 1) {
       if (current.trim()) {
         rawSentences.push(current.trim());
       }
@@ -107,12 +108,12 @@ function splitTextToSentences(text, minLength = 10) {
     return text.trim() ? [text] : [];
   }
 
-  // 合并过短的句子
+  // 合并过短的句子（以冒号结尾的句子强制独立，用于旁白/引语分离）
   const merged = [];
   let buffer = "";
   for (const sentence of rawSentences) {
     buffer += sentence;
-    if (buffer.length >= minLength) {
+    if (buffer.length >= minLength || /[：:]$/.test(buffer)) {
       merged.push(buffer);
       buffer = "";
     }
@@ -181,7 +182,7 @@ function showSentenceEditorView() {
     undoStack.length > 0 ? undoStack[undoStack.length - 1].index : -1;
 
   // 判断是否为 preset 模式（预编辑时用 currentMode，生成后用 lastGenerateParams）
-  const isPreset = previewing
+  const globalIsPreset = previewing
     ? currentMode === "preset"
     : lastGenerateParams && lastGenerateParams.mode === "preset";
 
@@ -204,8 +205,21 @@ function showSentenceEditorView() {
       else if (index === generatingProgress) genClass = "gen-current";
     }
 
-    // 情感标签：预编辑和生成后都显示（preset模式下）
-    const instructTag = !generating && isPreset
+    // 逐句声音配置判断
+    const voiceConfig = sentenceVoiceConfigs[index];
+    const effectiveIsPreset = voiceConfig
+      ? voiceConfig.type === "preset"
+      : globalIsPreset;
+
+    // 声音标签（非生成中时始终显示）
+    const voiceLabel = voiceConfig ? voiceConfig.label : t("label.voiceDefault");
+    const voiceOverrideClass = voiceConfig ? " voice-override" : "";
+    const voiceTag = !generating
+      ? `<div class="sentence-voice-tag" id="sent-voice-${index}" onclick="event.stopPropagation(); editSentenceVoice(${index})"><span class="sentence-voice-label">${t("label.voiceLabel")}:</span> <span class="sentence-voice-value${voiceOverrideClass}">${escapeHtml(voiceLabel)}</span> <span class="sentence-voice-edit">✏</span></div>`
+      : "";
+
+    // 情感标签：预编辑和生成后都显示（该句使用 preset 声音时）
+    const instructTag = !generating && effectiveIsPreset
       ? `<div class="sentence-instruct-tag" id="sent-instruct-${index}" onclick="event.stopPropagation(); editSentenceInstruct(${index})"><span class="sentence-instruct-label">${t("label.instructLabel")}:</span> <span class="sentence-instruct-value">${instruct ? escapeHtml(instruct) : t("label.instructEmpty")}</span> <span class="sentence-instruct-edit">✏</span></div>`
       : "";
 
@@ -237,6 +251,7 @@ function showSentenceEditorView() {
             <span class="sentence-editor-index">${index + 1}</span>
             <div style="flex:1;min-width:0">
                 <span class="sentence-editor-text" id="sent-text-${index}">${escapeHtml(text)}</span>
+                ${voiceTag}
                 ${instructTag}
             </div>
             ${actionsHtml}
@@ -298,6 +313,7 @@ function clearAndRestart() {
   sentenceAudios = [];
   sentenceTexts = [];
   sentenceInstructs = [];
+  sentenceVoiceConfigs = [];
   decodedPcmCache = [];
   currentSubtitles = null;
   lastGenerateParams = null;
@@ -412,6 +428,103 @@ function finishInstructEdit(index, inputEl) {
   showSentenceEditorView();
 }
 
+// ===== 逐句声音选择 =====
+function getDefaultVoiceLabel() {
+  if (isPreviewing) {
+    if (currentMode === "preset") {
+      const sel = document.getElementById("speaker");
+      return sel ? sel.options[sel.selectedIndex].text : "Vivian";
+    }
+    if (currentMode === "library") {
+      const v = savedVoices.find(v => v.id === selectedVoiceId);
+      return v ? v.name : t("label.voiceDefault");
+    }
+    return t("label.voiceDefault");
+  }
+  if (!lastGenerateParams) return t("label.voiceDefault");
+  if (lastGenerateParams.mode === "preset") {
+    const sel = document.getElementById("speaker");
+    if (sel) {
+      for (const opt of sel.options) {
+        if (opt.value === lastGenerateParams.speaker) return opt.text;
+      }
+    }
+    return lastGenerateParams.speaker || t("label.voiceDefault");
+  }
+  if (lastGenerateParams.mode === "saved_voice") {
+    const v = savedVoices.find(v => v.id === lastGenerateParams.voice_id);
+    return v ? v.name : t("label.voiceDefault");
+  }
+  return t("label.voiceDefault");
+}
+
+function editSentenceVoice(index) {
+  const tag = document.getElementById(`sent-voice-${index}`);
+  if (!tag) return;
+  if (tag.querySelector("select")) return; // 已在编辑中
+
+  const currentConfig = sentenceVoiceConfigs[index];
+
+  // 构建 <select>
+  let optionsHtml = `<option value="">${t("label.voiceDefault")} (${getDefaultVoiceLabel()})</option>`;
+
+  // 预设说话人选项组
+  const speakerSelect = document.getElementById("speaker");
+  if (speakerSelect) {
+    optionsHtml += `<optgroup label="${t("tab.preset")}">`;
+    for (const opt of speakerSelect.options) {
+      const selected = currentConfig && currentConfig.type === "preset" && currentConfig.speaker === opt.value ? " selected" : "";
+      optionsHtml += `<option value="preset:${opt.value}"${selected}>${opt.text}</option>`;
+    }
+    optionsHtml += `</optgroup>`;
+  }
+
+  // 声音库选项组
+  if (savedVoices.length > 0) {
+    optionsHtml += `<optgroup label="${t("tab.library")}">`;
+    for (const voice of savedVoices) {
+      const selected = currentConfig && currentConfig.type === "saved_voice" && currentConfig.voice_id === voice.id ? " selected" : "";
+      optionsHtml += `<option value="saved:${voice.id}"${selected}>${escapeHtml(voice.name)}</option>`;
+    }
+    optionsHtml += `</optgroup>`;
+  }
+
+  tag.innerHTML = `<select class="sentence-voice-select" onchange="finishVoiceEdit(${index}, this)" onblur="finishVoiceEdit(${index}, this)">${optionsHtml}</select>`;
+  const selectEl = tag.querySelector("select");
+  selectEl.focus();
+}
+
+function finishVoiceEdit(index, selectEl) {
+  if (!selectEl.isConnected) return;
+  selectEl.onchange = null;
+  selectEl.onblur = null;
+  const val = selectEl.value;
+  if (!val) {
+    sentenceVoiceConfigs[index] = null;
+  } else if (val.startsWith("preset:")) {
+    const speaker = val.slice(7);
+    const speakerSelect = document.getElementById("speaker");
+    let label = speaker;
+    if (speakerSelect) {
+      for (const opt of speakerSelect.options) {
+        if (opt.value === speaker) { label = opt.text; break; }
+      }
+    }
+    sentenceVoiceConfigs[index] = { type: "preset", speaker, label };
+  } else if (val.startsWith("saved:")) {
+    const voiceId = val.slice(6);
+    const voice = savedVoices.find(v => v.id === voiceId);
+    sentenceVoiceConfigs[index] = {
+      type: "saved_voice",
+      voice_id: voiceId,
+      label: voice ? voice.name : voiceId,
+    };
+    sentenceInstructs[index] = "";
+  }
+  saveSession();
+  setTimeout(() => showSentenceEditorView(), 0);
+}
+
 // ===== 单句试听 =====
 let _sentencePreviewEndHandler = null;
 
@@ -467,6 +580,8 @@ function undoRegenerate() {
   sentenceTexts[last.index] = last.text;
   if (last.instruct !== undefined)
     sentenceInstructs[last.index] = last.instruct;
+  if (last.voiceConfig !== undefined)
+    sentenceVoiceConfigs[last.index] = last.voiceConfig;
   // 重新合并
   rebuildAudioAndSubtitles();
   saveSession(); // 持久化
@@ -487,6 +602,7 @@ function deleteSentence(index) {
   finishEditing();
   sentenceTexts.splice(index, 1);
   sentenceInstructs.splice(index, 1);
+  sentenceVoiceConfigs.splice(index, 1);
   if (isPreviewing) {
     // 预编辑模式：无音频，跳过 rebuildAudioAndSubtitles
     if (selectedSentenceIndex >= sentenceTexts.length)
@@ -588,6 +704,7 @@ async function confirmInsert(afterIndex) {
     cancelInsertForm();
     sentenceTexts.splice(afterIndex, 0, newText);
     sentenceInstructs.splice(afterIndex, 0, newInstruct);
+    sentenceVoiceConfigs.splice(afterIndex, 0, null);
     selectedSentenceIndex = afterIndex;
     showSentenceEditorView();
     return;
@@ -650,6 +767,7 @@ async function confirmInsert(afterIndex) {
     sentenceAudios.splice(afterIndex, 0, data.audio);
     sentenceTexts.splice(afterIndex, 0, newText);
     sentenceInstructs.splice(afterIndex, 0, newInstruct);
+    sentenceVoiceConfigs.splice(afterIndex, 0, null);
     decodedPcmCache = [];
     rebuildAudioAndSubtitles();
     saveSession();
@@ -691,6 +809,7 @@ function enterPreviewMode() {
   sentenceInstructs = sentenceTexts.map(() =>
     currentMode === "preset" ? instruct : ""
   );
+  sentenceVoiceConfigs = sentenceTexts.map(() => null);
   sentenceAudios = [];
   isPreviewing = true;
   selectedSentenceIndex = -1;
@@ -706,6 +825,7 @@ function exitPreviewMode() {
   isPreviewing = false;
   sentenceTexts = [];
   sentenceInstructs = [];
+  sentenceVoiceConfigs = [];
   hideProgressView();
   // 恢复按钮为"分句预览"
   resetToPreviewButton();

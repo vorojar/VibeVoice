@@ -16,6 +16,7 @@ let timerInterval = null;
 let sentenceAudios = []; // 每句音频 base64 数组
 let sentenceTexts = []; // 每句文本数组
 let sentenceInstructs = []; // 每句情感指令（仅 preset 模式有意义）
+let sentenceVoiceConfigs = []; // 每句声音配置（null=默认，{type,speaker/voice_id,label}=覆盖）
 let lastGenerateParams = null; // {mode, speaker, language, instruct, voice_id, clone_prompt_id}
 let clonePromptId = null; // clone 模式的 session ID
 
@@ -65,8 +66,12 @@ let generationHistory = [];
 
 function loadHistory() {
   try {
-    generationHistory = JSON.parse(localStorage.getItem("vibevoice_history") || "[]");
-  } catch (e) { generationHistory = []; }
+    generationHistory = JSON.parse(
+      localStorage.getItem("vibevoice_history") || "[]",
+    );
+  } catch (e) {
+    generationHistory = [];
+  }
 }
 
 function saveToHistory(text, mode) {
@@ -88,23 +93,27 @@ function renderHistory() {
     container.innerHTML = `<div class="text-center text-charcoal/50 text-sm py-4">${t("history.empty")}</div>`;
     return;
   }
-  container.innerHTML = generationHistory.map(item => {
-    const preview = item.text.length > 40 ? item.text.slice(0, 40) + "..." : item.text;
-    const modeKey = "tab." + (item.mode === "saved_voice" ? "library" : item.mode);
-    const modeLabel = t(modeKey);
-    const timeStr = formatTimeAgo(item.timestamp);
-    return `<div class="history-item" onclick="loadHistoryItem('${item.id}')">
+  container.innerHTML = generationHistory
+    .map((item) => {
+      const preview =
+        item.text.length > 40 ? item.text.slice(0, 40) + "..." : item.text;
+      const modeKey =
+        "tab." + (item.mode === "saved_voice" ? "library" : item.mode);
+      const modeLabel = t(modeKey);
+      const timeStr = formatTimeAgo(item.timestamp);
+      return `<div class="history-item" onclick="loadHistoryItem('${item.id}')">
       <div class="text-sm truncate" style="color:#2d3748">${escapeHtmlSimple(preview)}</div>
       <div class="flex items-center justify-between mt-1">
         <span class="text-xs" style="color:#a0aec0">${modeLabel}</span>
         <span class="text-xs" style="color:#cbd5e0">${timeStr}</span>
       </div>
     </div>`;
-  }).join("");
+    })
+    .join("");
 }
 
 function loadHistoryItem(id) {
-  const item = generationHistory.find(h => h.id === id);
+  const item = generationHistory.find((h) => h.id === id);
   if (!item) return;
   document.getElementById("text-input").value = item.text;
   updateCharCount();
@@ -123,7 +132,11 @@ function formatTimeAgo(ts) {
 
 // 简单HTML转义（不依赖DOM，state.js加载时editor.js的escapeHtml尚未定义）
 function escapeHtmlSimple(text) {
-  return text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 // 句间停顿
@@ -154,6 +167,7 @@ async function saveSession() {
         sentenceAudios,
         sentenceTexts,
         sentenceInstructs,
+        sentenceVoiceConfigs,
         lastGenerateParams,
         clonePromptId,
         currentSubtitles,
@@ -213,6 +227,8 @@ async function restoreSession() {
   sentenceInstructs =
     session.sentenceInstructs ||
     sentenceTexts.map(() => lastGenerateParams?.instruct || "");
+  sentenceVoiceConfigs =
+    session.sentenceVoiceConfigs || sentenceTexts.map(() => null);
   clonePromptId = session.clonePromptId;
   currentSubtitles = session.currentSubtitles;
   pausePaceMultiplier = session.pausePaceMultiplier ?? 1.0;

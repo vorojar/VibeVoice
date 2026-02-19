@@ -17,6 +17,7 @@ function stopGeneration() {
   sentenceAudios = [];
   sentenceTexts = [];
   sentenceInstructs = [];
+  sentenceVoiceConfigs = [];
   decodedPcmCache = [];
   selectedSentenceIndex = -1;
   undoStack = [];
@@ -50,6 +51,7 @@ async function regenerateSentence(index) {
     audio: sentenceAudios[index],
     text: sentenceTexts[index],
     instruct: sentenceInstructs[index],
+    voiceConfig: sentenceVoiceConfigs[index],
   });
 
   const text = sentenceTexts[index];
@@ -71,20 +73,35 @@ async function regenerateSentence(index) {
   try {
     const formData = new FormData();
     formData.append("sentence_text", text);
-    formData.append("mode", lastGenerateParams.mode);
-    formData.append("language", lastGenerateParams.language);
-    if (lastGenerateParams.speaker)
-      formData.append("speaker", lastGenerateParams.speaker);
-    // 逐句情感指令（preset 模式优先使用逐句值）
-    const instruct =
-      lastGenerateParams.mode === "preset" && sentenceInstructs[index]
-        ? sentenceInstructs[index]
-        : lastGenerateParams.instruct;
-    if (instruct) formData.append("instruct", instruct);
-    if (lastGenerateParams.voice_id)
-      formData.append("voice_id", lastGenerateParams.voice_id);
-    if (lastGenerateParams.clone_prompt_id)
-      formData.append("clone_prompt_id", lastGenerateParams.clone_prompt_id);
+
+    // 逐句声音配置优先
+    const vc = sentenceVoiceConfigs[index];
+    if (vc) {
+      formData.append("mode", vc.type === "preset" ? "preset" : "saved_voice");
+      formData.append("language", lastGenerateParams.language);
+      if (vc.type === "preset") {
+        formData.append("speaker", vc.speaker);
+        const instruct = sentenceInstructs[index] || "";
+        if (instruct) formData.append("instruct", instruct);
+      } else if (vc.type === "saved_voice") {
+        formData.append("voice_id", vc.voice_id);
+      }
+    } else {
+      formData.append("mode", lastGenerateParams.mode);
+      formData.append("language", lastGenerateParams.language);
+      if (lastGenerateParams.speaker)
+        formData.append("speaker", lastGenerateParams.speaker);
+      // 逐句情感指令（preset 模式优先使用逐句值）
+      const instruct =
+        lastGenerateParams.mode === "preset" && sentenceInstructs[index]
+          ? sentenceInstructs[index]
+          : lastGenerateParams.instruct;
+      if (instruct) formData.append("instruct", instruct);
+      if (lastGenerateParams.voice_id)
+        formData.append("voice_id", lastGenerateParams.voice_id);
+      if (lastGenerateParams.clone_prompt_id)
+        formData.append("clone_prompt_id", lastGenerateParams.clone_prompt_id);
+    }
 
     const response = await fetch("/regenerate", {
       method: "POST",
@@ -186,6 +203,7 @@ async function generateWithProgress(url, btn, statusEl) {
             sentenceInstructs = sentenceTexts.map(
               () => lastGenerateParams?.instruct || "",
             );
+            sentenceVoiceConfigs = sentenceTexts.map(() => null);
           }
           if (data.clone_prompt_id) {
             clonePromptId = data.clone_prompt_id;
@@ -300,6 +318,7 @@ async function generateWithProgressPost(url, formData, btn, statusEl) {
                 sentenceInstructs = sentenceTexts.map(
                   () => lastGenerateParams?.instruct || "",
                 );
+                sentenceVoiceConfigs = sentenceTexts.map(() => null);
               }
               if (data.clone_prompt_id) {
                 clonePromptId = data.clone_prompt_id;
@@ -387,6 +406,7 @@ async function generate() {
   sentenceAudios = [];
   sentenceTexts = [];
   sentenceInstructs = [];
+  sentenceVoiceConfigs = [];
   decodedPcmCache = [];
   selectedSentenceIndex = -1;
   clonePromptId = null;
@@ -402,8 +422,8 @@ async function generate() {
         : currentMode;
   const modelReady = await ensureModelLoaded(modelType);
   if (!modelReady) {
+    hideProgressView();
     btn.disabled = false;
-    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t("btn.previewSentences")}</span>`;
     return;
   }
 
@@ -607,11 +627,190 @@ async function generate() {
     }
 
     statusEl.innerHTML = `<span class="text-green-600">${t("status.success")}</span>`;
-
   } catch (error) {
     statusEl.innerHTML = `<span class="text-red-600">${t("status.failed")}: ${error.message}</span>`;
   } finally {
     btn.disabled = false;
+    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t("btn.previewSentences")}</span>`;
+  }
+}
+
+function buildLastGenerateParams() {
+  if (currentMode === "preset") {
+    const speaker = document.getElementById("speaker").value;
+    const language = document.getElementById("language-preset").value;
+    const instruct = document.getElementById("instruct").value.trim();
+    lastGenerateParams = {
+      mode: "preset",
+      speaker,
+      language,
+      instruct: instruct || null,
+    };
+  } else if (currentMode === "library") {
+    const language = document.getElementById("language-library").value;
+    lastGenerateParams = {
+      mode: "saved_voice",
+      language,
+      voice_id: selectedVoiceId,
+    };
+  } else if (currentMode === "clone") {
+    const language = document.getElementById("language-clone").value;
+    lastGenerateParams = {
+      mode: "clone",
+      language,
+      clone_prompt_id: clonePromptId || null,
+    };
+  } else if (currentMode === "design") {
+    const language = document.getElementById("language-design").value;
+    const desc = document.getElementById("voice-desc").value.trim();
+    lastGenerateParams = { mode: "design", language, instruct: desc };
+  }
+}
+
+async function generateMixedVoices(texts, instructs, voiceConfigs) {
+  const btn = document.getElementById("generate-btn");
+  const statusEl = document.getElementById("status-message");
+
+  // 确定需要哪些模型
+  const modelsNeeded = new Set();
+  for (const vc of voiceConfigs) {
+    if (vc) {
+      if (vc.type === "preset") modelsNeeded.add("custom");
+      else if (vc.type === "saved_voice") modelsNeeded.add("clone");
+    }
+  }
+  // 默认声音也需要对应模型
+  if (lastGenerateParams) {
+    if (lastGenerateParams.mode === "preset") modelsNeeded.add("custom");
+    else if (
+      lastGenerateParams.mode === "saved_voice" ||
+      lastGenerateParams.mode === "clone"
+    )
+      modelsNeeded.add("clone");
+    else if (lastGenerateParams.mode === "design") modelsNeeded.add("design");
+  }
+
+  for (const modelType of modelsNeeded) {
+    const ready = await ensureModelLoaded(modelType);
+    if (!ready) {
+      hideProgressView();
+      btn.disabled = false;
+      return;
+    }
+  }
+
+  isGenerating = true;
+  sentenceTexts = texts;
+  sentenceInstructs = instructs;
+  sentenceVoiceConfigs = voiceConfigs;
+  sentenceAudios = new Array(texts.length).fill(null);
+  decodedPcmCache = [];
+  generatingProgress = 0;
+
+  // 显示句子编辑器（生成中模式）
+  showSentenceEditorView();
+
+  // 显示停止按钮
+  btn.disabled = false;
+  btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12"></rect></svg><span>${t("btn.stop")}</span>`;
+  btn.onclick = stopGeneration;
+  statusEl.textContent = `${t("status.generating")} 0/${texts.length} ${t("stats.sentences")} (0%)`;
+
+  const startTime = Date.now();
+
+  try {
+    for (let i = 0; i < texts.length; i++) {
+      if (!isGenerating) return; // 用户按了停止
+
+      updateGeneratingProgress(i);
+      statusEl.textContent = `${t("status.generating")} ${i}/${texts.length} ${t("stats.sentences")} (${Math.round((i / texts.length) * 100)}%)`;
+      btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12"></rect></svg><span>${i}/${texts.length} ${t("stats.sentences")}</span>`;
+
+      const formData = new FormData();
+      formData.append("sentence_text", texts[i]);
+
+      const vc = voiceConfigs[i];
+      if (vc) {
+        formData.append(
+          "mode",
+          vc.type === "preset" ? "preset" : "saved_voice",
+        );
+        formData.append("language", lastGenerateParams.language);
+        if (vc.type === "preset") {
+          formData.append("speaker", vc.speaker);
+          const inst = instructs[i] || "";
+          if (inst) formData.append("instruct", inst);
+        } else if (vc.type === "saved_voice") {
+          formData.append("voice_id", vc.voice_id);
+        }
+      } else {
+        formData.append("mode", lastGenerateParams.mode);
+        formData.append("language", lastGenerateParams.language);
+        if (lastGenerateParams.speaker)
+          formData.append("speaker", lastGenerateParams.speaker);
+        const inst =
+          lastGenerateParams.mode === "preset" && instructs[i]
+            ? instructs[i]
+            : lastGenerateParams.instruct;
+        if (inst) formData.append("instruct", inst);
+        if (lastGenerateParams.voice_id)
+          formData.append("voice_id", lastGenerateParams.voice_id);
+        if (lastGenerateParams.clone_prompt_id)
+          formData.append(
+            "clone_prompt_id",
+            lastGenerateParams.clone_prompt_id,
+          );
+      }
+
+      const response = await fetch("/regenerate", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.detail || `Sentence ${i + 1} failed`);
+      }
+      const data = await response.json();
+      sentenceAudios[i] = data.audio;
+    }
+
+    // 全部完成
+    isGenerating = false;
+    generatingProgress = -1;
+
+    // 重建音频
+    rebuildAudioAndSubtitles();
+    loadWaveform();
+    audioElement.play();
+    document.getElementById("player-section").classList.remove("hidden");
+
+    // 统计
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    const charCount = texts.join("").length;
+    lastStatsData = {
+      char_count: charCount,
+      sentence_count: texts.length,
+      elapsed,
+      avg_per_char: (parseFloat(elapsed) / charCount).toFixed(2),
+    };
+    renderStats();
+
+    saveSession();
+    saveToHistory(texts.join(""), "mixed");
+
+    selectedSentenceIndex = -1;
+    showSentenceEditorView();
+
+    statusEl.innerHTML = `<span class="text-green-600">${t("status.success")}</span>`;
+    btn.disabled = false;
+    btn.onclick = enterPreviewMode;
+    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t("btn.previewSentences")}</span>`;
+  } catch (error) {
+    isGenerating = false;
+    generatingProgress = -1;
+    statusEl.innerHTML = `<span class="text-red-600">${t("status.failed")}: ${error.message}</span>`;
+    btn.disabled = false;
+    btn.onclick = enterPreviewMode;
     btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t("btn.previewSentences")}</span>`;
   }
 }
@@ -621,17 +820,31 @@ async function generateFromPreview() {
   finishEditing();
   const editedTexts = [...sentenceTexts];
   const editedInstructs = [...sentenceInstructs];
+  const editedVoiceConfigs = [...sentenceVoiceConfigs];
   document.getElementById("text-input").value = editedTexts.join("");
 
-  // 退出预编辑状态，进入正常生成流程
+  // 退出预编辑状态
   isPreviewing = false;
 
-  // 调用原有 generate() 逻辑（isPreviewing 已置为 false，不会递归）
+  // 检查是否有逐句声音覆盖
+  const hasVoiceOverrides = editedVoiceConfigs.some((c) => c !== null);
+  if (hasVoiceOverrides) {
+    // 构建默认参数
+    buildLastGenerateParams();
+    // 走混合声音生成（逐句调 /regenerate）
+    await generateMixedVoices(editedTexts, editedInstructs, editedVoiceConfigs);
+    return;
+  }
+
+  // 无覆盖，走原有批量生成流程
   await generate();
 
-  // 生成完成后，尝试对齐 sentenceInstructs（后端可能重新分句导致数量不同）
+  // 生成完成后，尝试对齐 sentenceInstructs 和 voiceConfigs
   if (sentenceTexts.length === editedInstructs.length) {
     sentenceInstructs = editedInstructs;
+  }
+  if (sentenceTexts.length === editedVoiceConfigs.length) {
+    sentenceVoiceConfigs = editedVoiceConfigs;
   }
   // 数量不同则保留 generate() 里设的默认值
 
