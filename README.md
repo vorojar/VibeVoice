@@ -1,38 +1,74 @@
 # VibeVoice
 
-[中文](README.md)
+[中文](README_zh.md) | [GitHub](https://github.com/vorojar/VibeVoice)
 
-An AI audiobook generation platform powered by Qwen3-TTS models, featuring preset voices, voice cloning, voice design, and sentence-by-sentence editing.
+**Open-source AI audiobook studio** — a free, local alternative to ElevenLabs.
+
+Powered by Qwen3-TTS models. Three voice creation modes, per-sentence granular control, LLM-powered smart character analysis, and multi-character mixed-voice generation. Runs 100% locally on your GPU — zero API costs, your data never leaves your device.
 
 ![Demo](demo_en.png)
 
-> **Note**: Streaming audio output is not currently supported as the official SDK does not expose streaming interfaces yet.
+---
+
+## Why VibeVoice?
+
+| Capability | VibeVoice | ElevenLabs |
+|------------|:---------:|:----------:|
+| Per-sentence emotion/voice control | ★★★★★ | ★★ |
+| Voice creation modes | ★★★★★ Preset+Clone+Design | ★★★★ Clone+Preset |
+| Smart character analysis | ★★★★★ LLM auto-analysis | ★★★ Manual tagging |
+| Editing tools | ★★★★ Sentence editor+Preview | ★★ Basic editing |
+| Voice quality | ★★★ | ★★★★★ |
+| Real-time/streaming | ★★★ | ★★★★★ |
+| Language coverage | ★★★★ 10 languages | ★★★★★ 32 languages |
+| Cost | ★★★★★ Completely free | ★★ $5–$99/mo |
+| Privacy | ★★★★★ 100% local | ★★ Cloud processing |
+
+**Key advantages:**
+
+- **Per-sentence granular control** — Set voice and emotion independently for each sentence. ElevenLabs only supports global settings. Critical for audiobooks where dialogue and narration need different tones
+- **LLM smart analysis** — Qwen3-4B automatically identifies characters and emotions in text, one-click voice assignment. ElevenLabs requires manual paragraph-by-paragraph tagging
+- **Voice design** — Create voices from natural language descriptions (e.g., "deep husky middle-aged male voice"), no reference audio needed. ElevenLabs doesn't offer this
+- **Free + private** — Runs on your local GPU, no per-character billing, no usage limits, data never leaves your machine
 
 ---
 
 ## Features
 
-- **Three Generation Modes**: Preset speakers (9 voices + emotion control), voice cloning, voice design (natural language description)
-- **Voice Library**: Save and manage cloned/designed voices for reuse
-- **Sentence Editor**: Post-generation per-sentence editing, regeneration, deletion, insertion with per-sentence voice and emotion config
-- **Sentence Preview**: Preview sentence splits before generation, adjust text, emotions, and voices
-- **Project Management**: Multi-project, multi-chapter organization with sidebar navigation
-- **Smart Analysis**: LLM-powered character and emotion recognition with one-click voice assignment
-- **Multilingual**: 10 languages supported, bilingual UI (Chinese/English)
-- **REST API**: Easy integration into your applications
+### Three Voice Modes
 
-## Detailed Features
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **Preset Speakers** | 9 built-in voices + emotion instruction control | Quick generation, no assets needed |
+| **Voice Cloning** | Clone from 3s of reference audio | Replicate a specific voice |
+| **Voice Design** | Create voice from natural language description | Design a new voice from scratch |
 
-1. **Sentence-by-Sentence Progress** - Long text is split into sentences and generated sequentially with real-time progress and elapsed time display
-2. **Stop Generation** - Cancel ongoing generation at any time; the system stops at the next sentence boundary
-3. **Subtitle Generation** - Automatically generates SRT/VTT subtitle files synchronized with audio timing, perfect for video production
-4. **Auto Language Detection** - Automatically detects input language (Chinese/English/Japanese/Korean) and sets the language selector accordingly
-5. **Voice Prompt Caching** - Voice library entries cache their voice prompts to disk, eliminating repeated prompt extraction and significantly speeding up subsequent generations
-6. **MP3 Export** - Convert and download audio as MP3 directly in the browser (in addition to WAV)
-7. **Voice Design** - Create custom voices by describing characteristics in natural language (e.g., "deep male voice with a warm tone"), with automatic cross-sentence timbre consistency
-8. **Per-Sentence Voice Selection** - Each sentence can use a different voice (preset/library), enabling mixed-voice generation
-9. **Per-Sentence Emotion Instructions** - Each sentence can have its own emotion instruction, independent of the global setting
-10. **Smart Character Analysis** - Qwen3-4B powered character/emotion recognition, one-click voice assignment to dialogue characters
+### Sentence Editor
+
+- **Sentence preview** — Preview sentence splits before generation, edit text, adjust emotions, insert/delete, then generate
+- **Per-sentence voice** — Each sentence can use a different voice (preset/library), interleave narration and character dialogue
+- **Per-sentence emotion** — Each sentence gets its own emotion instruction (happy/sad/angry...)
+- **Per-sentence editing** — Double-click to edit text, regenerate, delete, undo, single-sentence preview playback
+- **Inter-sentence pause** — 0x–2x slider for real-time silence duration adjustment between sentences
+
+### Smart Character Analysis
+
+Powered by Qwen3-4B, automatically identifies characters and emotions in text. Character panel with one-click voice assignment, analysis results auto-fill per-sentence emotion instructions.
+
+### Project Management
+
+Sidebar project tree navigation, multi-project multi-chapter organization. Project-level character-voice mapping shared across chapters. IndexedDB persistence — refresh without losing work.
+
+### More Features
+
+- **Waveform visualizer** — WaveSurfer.js waveform player, highlights current sentence during playback
+- **Subtitle export** — Auto-generates SRT/VTT subtitle files for video production
+- **MP3 export** — In-browser conversion and download
+- **Auto language detection** — Automatically sets language based on input text
+- **Generation timer** — Real-time elapsed time display during generation
+- **Keyboard shortcuts** — Space=play, arrows=navigate, Enter=regenerate, Ctrl+Z=undo
+- **REST API** — Full HTTP API for integration
+- **Voice prompt caching** — Disk-cached voice prompts for faster subsequent generation
 
 ## Supported Languages
 
@@ -315,6 +351,23 @@ curl http://localhost:8001/languages
 - Voice library management
 - Multilingual support (10 languages)
 - REST API, bilingual UI (Chinese/English)
+
+---
+
+## Roadmap
+
+| Status | Feature | Description |
+|:------:|---------|-------------|
+| ✅ | Per-sentence voice/emotion control | Independent voice and emotion per sentence |
+| ✅ | LLM smart character analysis | Qwen3-4B auto character and emotion recognition |
+| ✅ | Project/chapter management | Multi-project, multi-chapter, sidebar tree |
+| ✅ | Voice design independent mode | Create voices from natural language descriptions |
+| 🔲 | Long text import | TXT/EPUB/Word file import |
+| 🔲 | Whisper auto-transcription | Auto-transcribe reference audio text |
+| 🔲 | Speed/pitch control | Per-sentence speed and pitch adjustment |
+| 🔲 | Audio post-processing | Noise reduction, EQ, loudness normalization |
+| 🔲 | Pronunciation dictionary | Custom pronunciation for names/terms |
+| 🔲 | Real-time streaming | Pending upstream SDK support |
 
 ---
 
