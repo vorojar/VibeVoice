@@ -21,6 +21,10 @@ let sentenceParagraphBreaks = []; // 段落边界标记：true=该句是段落�
 let lastGenerateParams = null; // {mode, speaker, language, instruct, voice_id, clone_prompt_id}
 let clonePromptId = null; // clone 模式的 session ID
 
+// 角色分析结果
+let sentenceCharacters = []; // 每句角色名（"旁白" / 角色名）
+let characterVoiceMap = {}; // 角色名 → voice config（用户选择后填充）
+
 // 分句预览模式（无音频，纯文本编辑）
 let isPreviewing = false;
 
@@ -169,6 +173,8 @@ async function saveSession() {
         sentenceTexts,
         sentenceInstructs,
         sentenceVoiceConfigs,
+        sentenceCharacters,
+        characterVoiceMap,
         lastGenerateParams,
         clonePromptId,
         currentSubtitles,
@@ -230,6 +236,8 @@ async function restoreSession() {
     sentenceTexts.map(() => lastGenerateParams?.instruct || "");
   sentenceVoiceConfigs =
     session.sentenceVoiceConfigs || sentenceTexts.map(() => null);
+  sentenceCharacters = session.sentenceCharacters || [];
+  characterVoiceMap = session.characterVoiceMap || {};
   clonePromptId = session.clonePromptId;
   currentSubtitles = session.currentSubtitles;
   pausePaceMultiplier = session.pausePaceMultiplier ?? 1.0;

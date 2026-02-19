@@ -91,6 +91,9 @@
                             <button id="preview-back-btn" onclick="exitPreviewMode()" class="sentence-new-btn" style="display:none">
                                 ← <span data-i18n="btn.backToInput">返回编辑</span>
                             </button>
+                            <button id="analyze-btn" onclick="analyzeCharacters()" class="sentence-new-btn analyze-btn-style" style="display:none">
+                                ✨ <span data-i18n="btn.analyzeCharacters">智能分析</span>
+                            </button>
                             <button id="toolbar-new-btn" onclick="clearAndRestart()" class="sentence-new-btn">
                                 ＋ <span data-i18n="btn.newProject">新建</span>
                             </button>
@@ -163,6 +166,9 @@
                     </button>
                     <button class="mode-tab" data-mode="clone" onclick="switchMode('clone')">
                         <span data-i18n="tab.library">声音库</span>
+                    </button>
+                    <button class="mode-tab" data-mode="design" onclick="switchMode('design')">
+                        <span data-i18n="tab.design">设计</span>
                     </button>
                 </div>
 
@@ -253,7 +259,7 @@
                                         <label class="w-full flex items-center justify-center gap-2 py-3 bg-cream-dark border border-warm-gray rounded-lg hover:bg-warm-gray transition-colors cursor-pointer">
                                             <span>📁</span>
                                             <span data-i18n="btn.upload">上传文件</span>
-                                            <input type="file" id="audio-file" accept="audio/*" class="hidden" onchange="handleFileSelect(this)">
+                                            <input type="file" id="audio-file" accept="audio/*,video/*" class="hidden" onchange="handleFileSelect(this)">
                                         </label>
                                     </div>
                                     <!-- 音频预览 -->
@@ -336,6 +342,29 @@
                                 </div>
                             </div>
                         </details>
+                    </div>
+
+                    <!-- 声音设计生成配置 -->
+                    <div id="config-design" class="hidden space-y-4">
+                        <div>
+                            <label class="block text-sm text-charcoal/70 mb-2" data-i18n="config.voiceDesc">声音描述 <span class="text-red-500">*</span></label>
+                            <textarea id="voice-desc-gen" class="input-field h-20" data-i18n-placeholder="config.voiceDescPlaceholder" placeholder="描述你想要的声音，如：低沉沙哑的中年男声"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-charcoal/70 mb-2" data-i18n="config.language">语言</label>
+                            <select id="language-design-gen" class="input-field">
+                                <option value="Chinese">中文</option>
+                                <option value="English">English</option>
+                                <option value="Japanese">日本語</option>
+                                <option value="Korean">한국어</option>
+                                <option value="German">Deutsch</option>
+                                <option value="French">Français</option>
+                                <option value="Russian">Русский</option>
+                                <option value="Portuguese">Português</option>
+                                <option value="Spanish">Español</option>
+                                <option value="Italian">Italiano</option>
+                            </select>
+                        </div>
                     </div>
 
                 </div>

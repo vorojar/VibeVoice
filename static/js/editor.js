@@ -10,6 +10,7 @@ function switchMode(mode) {
   // 显示/隐藏配置面板
   document.getElementById("config-preset").classList.toggle("hidden", mode !== "preset");
   document.getElementById("config-clone").classList.toggle("hidden", mode !== "clone");
+  document.getElementById("config-design").classList.toggle("hidden", mode !== "design");
 
   // 切换到克隆/声音库时刷新声音库列表
   if (mode === "clone") {
@@ -83,7 +84,7 @@ function detectAndSetLanguage(text) {
   else if (counts.zh > total * 0.3) lang = "Chinese";
   else if (counts.en > total * 0.5) lang = "English";
   if (lang) {
-    ["language-preset", "language-clone"].forEach((id) => {
+    ["language-preset", "language-clone", "language-design-gen"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.value = lang;
     });
@@ -197,8 +198,10 @@ function showSentenceEditorView() {
     ? currentMode === "preset"
     : lastGenerateParams && lastGenerateParams.mode === "preset";
 
-  let html =
-    `<div style="flex:1;min-height:0;overflow-y:auto" class="scrollbar-thin"><ul class="sentence-editor-list${generating ? " generating" : ""}${previewing ? " previewing" : ""}">`;
+  // 角色面板（有分析结果时显示，生成中为只读）
+  const characterPanelHtml = sentenceCharacters.length > 0 ? renderCharacterPanel(generating) : "";
+
+  let html = `<div style="flex:1;min-height:0;overflow-y:auto" class="scrollbar-thin" onclick="handleEditorBgClick(event)">${characterPanelHtml}<ul class="sentence-editor-list${generating ? " generating" : ""}${previewing ? " previewing" : ""}">`;
   // 插入按钮（仅非生成模式）
   if (!generating) {
     html += `<li class="sentence-insert-row"><button class="sentence-insert-btn" onclick="event.stopPropagation(); showInsertForm(0)" title="${t("btn.addSentence")}">＋</button></li>`;
@@ -222,16 +225,18 @@ function showSentenceEditorView() {
       ? voiceConfig.type === "preset"
       : globalIsPreset;
 
-    // 声音标签（非生成中时始终显示）
+    // 声音标签（始终显示，生成中为只读）
     const voiceLabel = voiceConfig ? voiceConfig.label : getDefaultVoiceLabel();
     const voiceOverrideClass = voiceConfig ? " voice-override" : "";
-    const voiceTag = !generating
-      ? `<div class="sentence-voice-tag" id="sent-voice-${index}" onclick="event.stopPropagation(); editSentenceVoice(${index})"><span class="sentence-voice-label">${t("label.voiceLabel")}:</span> <span class="sentence-voice-value${voiceOverrideClass}">${escapeHtml(voiceLabel)}</span> <span class="sentence-voice-edit">✏</span></div>`
-      : "";
+    const voiceTag = generating
+      ? `<div class="sentence-voice-tag readonly"><span class="sentence-voice-label">${t("label.voiceLabel")}:</span> <span class="sentence-voice-value${voiceOverrideClass}">${escapeHtml(voiceLabel)}</span></div>`
+      : `<div class="sentence-voice-tag" id="sent-voice-${index}" onclick="event.stopPropagation(); editSentenceVoice(${index})"><span class="sentence-voice-label">${t("label.voiceLabel")}:</span> <span class="sentence-voice-value${voiceOverrideClass}">${escapeHtml(voiceLabel)}</span> <span class="sentence-voice-edit">✏</span></div>`;
 
-    // 情感标签：预编辑和生成后都显示（该句使用 preset 声音时）
-    const instructTag = !generating && effectiveIsPreset
-      ? `<div class="sentence-instruct-tag" id="sent-instruct-${index}" onclick="event.stopPropagation(); editSentenceInstruct(${index})"><span class="sentence-instruct-label">${t("label.instructLabel")}:</span> <span class="sentence-instruct-value">${instruct ? escapeHtml(instruct) : t("label.instructEmpty")}</span> <span class="sentence-instruct-edit">✏</span></div>`
+    // 情感标签（preset 声音时显示，生成中为只读）
+    const instructTag = effectiveIsPreset
+      ? (generating
+        ? `<div class="sentence-instruct-tag readonly"><span class="sentence-instruct-label">${t("label.instructLabel")}:</span> <span class="sentence-instruct-value">${instruct ? escapeHtml(instruct) : t("label.instructEmpty")}</span></div>`
+        : `<div class="sentence-instruct-tag" id="sent-instruct-${index}" onclick="event.stopPropagation(); editSentenceInstruct(${index})"><span class="sentence-instruct-label">${t("label.instructLabel")}:</span> <span class="sentence-instruct-value">${instruct ? escapeHtml(instruct) : t("label.instructEmpty")}</span> <span class="sentence-instruct-edit">✏</span></div>`)
       : "";
 
     let actionsHtml = "";
@@ -262,7 +267,7 @@ function showSentenceEditorView() {
             <span class="sentence-editor-index">${index + 1}</span>
             <div style="flex:1;min-width:0">
                 <span class="sentence-editor-text" id="sent-text-${index}">${escapeHtml(text)}</span>
-                ${voiceTag || instructTag ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${voiceTag}${instructTag}</div>` : ""}
+                ${(voiceTag || instructTag || sentenceCharacters[index]) ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${sentenceCharacters[index] ? `<span class="sentence-character-tag">${escapeHtml(sentenceCharacters[index])}</span>` : ""}${voiceTag}${instructTag}</div>` : ""}
             </div>
             ${actionsHtml}
         </li>`;
@@ -304,6 +309,7 @@ function showSentenceEditorView() {
     toolbar.style.display = "flex";
     toolbar.style.width = "auto";
     document.getElementById("preview-back-btn").style.display = "";
+    document.getElementById("analyze-btn").style.display = "";
     document.getElementById("toolbar-new-btn").style.display = "none";
     document.getElementById("toolbar-pace").style.display = "none";
   } else {
@@ -317,6 +323,7 @@ function showSentenceEditorView() {
     toolbar.style.display = "flex";
     toolbar.style.width = "100%";
     document.getElementById("preview-back-btn").style.display = "none";
+    document.getElementById("analyze-btn").style.display = "none";
     document.getElementById("toolbar-new-btn").style.display = "";
     document.getElementById("toolbar-pace").style.display = "";
     // 同步停顿控件值
@@ -338,6 +345,8 @@ function clearAndRestart() {
   sentenceInstructs = [];
   sentenceVoiceConfigs = [];
   sentenceParagraphBreaks = [];
+  sentenceCharacters = [];
+  characterVoiceMap = {};
   decodedPcmCache = [];
   currentSubtitles = null;
   lastGenerateParams = null;
@@ -429,6 +438,15 @@ function finishEditing() {
   }
 }
 
+function handleEditorBgClick(event) {
+  if (event.target.closest('.sentence-editor-item') || event.target.closest('.sentence-insert-btn') || event.target.closest('.insert-form-row') || event.target.closest('.character-panel')) return;
+  finishEditing();
+  if (selectedSentenceIndex !== -1) {
+    selectedSentenceIndex = -1;
+    document.querySelectorAll(".sentence-editor-item").forEach(el => el.classList.remove("selected"));
+  }
+}
+
 // ===== 逐句情感编辑 =====
 function editSentenceInstruct(index) {
   const tag = document.getElementById(`sent-instruct-${index}`);
@@ -463,9 +481,17 @@ function getDefaultVoiceLabel() {
       const v = savedVoices.find(v => v.id === selectedVoiceId);
       return v ? v.name : t("label.voiceDefault");
     }
+    if (currentMode === "design") {
+      const desc = document.getElementById("voice-desc-gen")?.value?.trim();
+      if (desc) return desc.length > 15 ? desc.slice(0, 15) + "…" : desc;
+    }
     return t("label.voiceDefault");
   }
   if (!lastGenerateParams) return t("label.voiceDefault");
+  if (lastGenerateParams.mode === "design" && lastGenerateParams.instruct) {
+    const desc = lastGenerateParams.instruct;
+    return desc.length > 15 ? desc.slice(0, 15) + "…" : desc;
+  }
   if (lastGenerateParams.mode === "preset") {
     const sel = document.getElementById("speaker");
     if (sel) {
@@ -632,6 +658,7 @@ function deleteSentence(index) {
   sentenceInstructs.splice(index, 1);
   sentenceVoiceConfigs.splice(index, 1);
   sentenceParagraphBreaks.splice(index, 1);
+  if (sentenceCharacters.length > index) sentenceCharacters.splice(index, 1);
   if (isPreviewing) {
     // 预编辑模式：无音频，跳过 rebuildAudioAndSubtitles
     if (selectedSentenceIndex >= sentenceTexts.length)
@@ -735,6 +762,7 @@ async function confirmInsert(afterIndex) {
     sentenceInstructs.splice(afterIndex, 0, newInstruct);
     sentenceVoiceConfigs.splice(afterIndex, 0, null);
     sentenceParagraphBreaks.splice(afterIndex, 0, false); // 插入句子属于同段落
+    if (sentenceCharacters.length > 0) sentenceCharacters.splice(afterIndex, 0, "");
     selectedSentenceIndex = afterIndex;
     showSentenceEditorView();
     return;
@@ -799,6 +827,7 @@ async function confirmInsert(afterIndex) {
     sentenceInstructs.splice(afterIndex, 0, newInstruct);
     sentenceVoiceConfigs.splice(afterIndex, 0, null);
     sentenceParagraphBreaks.splice(afterIndex, 0, false);
+    if (sentenceCharacters.length > 0) sentenceCharacters.splice(afterIndex, 0, "");
     decodedPcmCache = [];
     rebuildAudioAndSubtitles();
     saveSession();
@@ -855,6 +884,8 @@ function enterPreviewMode() {
     currentMode === "preset" ? instruct : ""
   );
   sentenceVoiceConfigs = sentenceTexts.map(() => null);
+  sentenceCharacters = [];
+  characterVoiceMap = {};
   sentenceAudios = [];
   isPreviewing = true;
   selectedSentenceIndex = -1;
@@ -882,6 +913,8 @@ function exitPreviewMode() {
   sentenceInstructs = [];
   sentenceVoiceConfigs = [];
   sentenceParagraphBreaks = [];
+  sentenceCharacters = [];
+  characterVoiceMap = {};
   hideProgressView();
   // 恢复操作栏布局
   const actionBar = document.getElementById("action-bar");
@@ -895,6 +928,186 @@ function resetToPreviewButton() {
   const btn = document.getElementById("generate-btn");
   btn.onclick = enterPreviewMode;
   btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t("btn.previewSentences")}</span>`;
+}
+
+// ===== 智能角色分析 =====
+async function analyzeCharacters() {
+  if (sentenceTexts.length === 0) return;
+
+  const btn = document.getElementById("analyze-btn");
+  const genBtn = document.getElementById("generate-btn");
+  const statusEl = document.getElementById("status-message");
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  genBtn.disabled = true;
+  btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px"></span> ${t("analyze.analyzing")}`;
+
+  try {
+    // 确保分析模型已加载
+    const modelReady = await ensureModelLoaded("analyzer");
+    if (!modelReady) {
+      statusEl.innerHTML = `<span class="text-red-600">${t("analyze.failed")}</span>`;
+      return;
+    }
+
+    statusEl.textContent = t("analyze.analyzing");
+
+    const response = await fetch("/analyze-text", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sentences: sentenceTexts }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.detail || "Analysis failed");
+    }
+
+    const result = await response.json();
+
+    // 填充角色数据
+    sentenceCharacters = new Array(sentenceTexts.length).fill(t("analyze.narrator"));
+    characterVoiceMap = {};
+
+    if (result.sentences) {
+      for (const s of result.sentences) {
+        if (s.index >= 0 && s.index < sentenceTexts.length) {
+          sentenceCharacters[s.index] = s.character || t("analyze.narrator");
+          if (s.emotion) {
+            sentenceInstructs[s.index] = s.emotion;
+          }
+        }
+      }
+    }
+
+    // 初始化 characterVoiceMap（角色名 → null，等用户选择）
+    if (result.characters) {
+      for (const name of result.characters) {
+        characterVoiceMap[name] = null;
+      }
+    }
+
+    statusEl.innerHTML = `<span class="text-green-600">${t("analyze.success")}</span>`;
+    showSentenceEditorView();
+  } catch (error) {
+    statusEl.innerHTML = `<span class="text-red-600">${t("analyze.failed")}: ${error.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    genBtn.disabled = false;
+    btn.innerHTML = originalHtml;
+  }
+}
+
+function renderCharacterPanel(readonly = false) {
+  if (sentenceCharacters.length === 0) return "";
+
+  // 统计每个角色的句子数
+  const charCounts = {};
+  for (const ch of sentenceCharacters) {
+    charCounts[ch] = (charCounts[ch] || 0) + 1;
+  }
+
+  // 按出现顺序排列，旁白排第一
+  const charNames = Object.keys(charCounts);
+  charNames.sort((a, b) => {
+    const isNA = a === t("analyze.narrator") || a === "旁白" || a === "Narrator";
+    const isNB = b === t("analyze.narrator") || b === "旁白" || b === "Narrator";
+    if (isNA && !isNB) return -1;
+    if (!isNA && isNB) return 1;
+    return 0;
+  });
+
+  let html = `<div class="character-panel">
+    <div class="character-panel-header">
+      <span class="character-panel-title">${t("analyze.characters")}</span>
+    </div>
+    <div class="character-list">`;
+
+  for (const name of charNames) {
+    const count = charCounts[name];
+    const currentVoice = characterVoiceMap[name];
+    const voiceLabel = currentVoice ? currentVoice.label : `${t("label.voiceDefault")} (${getDefaultVoiceLabel()})`;
+
+    if (readonly) {
+      // 生成中：只读，显示角色名 + 句数 + 当前声音文字
+      html += `<div class="character-item">
+        <span class="character-name">${escapeHtml(name)}</span>
+        <span class="character-count">${count}${t("analyze.sentences")}</span>
+        <span class="character-voice-label">${escapeHtml(voiceLabel)}</span>
+      </div>`;
+    } else {
+      // 构建 voice select
+      let optionsHtml = `<option value="">${t("label.voiceDefault")} (${getDefaultVoiceLabel()})</option>`;
+
+      // 预设说话人
+      const speakerSelect = document.getElementById("speaker");
+      if (speakerSelect) {
+        optionsHtml += `<optgroup label="${t("tab.preset")}">`;
+        for (const opt of speakerSelect.options) {
+          const selected = currentVoice && currentVoice.type === "preset" && currentVoice.speaker === opt.value ? " selected" : "";
+          optionsHtml += `<option value="preset:${opt.value}"${selected}>${opt.text}</option>`;
+        }
+        optionsHtml += `</optgroup>`;
+      }
+
+      // 声音库
+      if (savedVoices.length > 0) {
+        optionsHtml += `<optgroup label="${t("tab.library")}">`;
+        for (const voice of savedVoices) {
+          const selected = currentVoice && currentVoice.type === "saved_voice" && currentVoice.voice_id === voice.id ? " selected" : "";
+          optionsHtml += `<option value="saved:${voice.id}"${selected}>${escapeHtml(voice.name)}</option>`;
+        }
+        optionsHtml += `</optgroup>`;
+      }
+
+      const safeNameAttr = escapeHtml(name).replace(/'/g, "&#39;");
+      html += `<div class="character-item">
+        <span class="character-name">${escapeHtml(name)}</span>
+        <span class="character-count">${count}${t("analyze.sentences")}</span>
+        <select class="character-voice-select" data-character="${safeNameAttr}" onchange="applyCharacterVoice(this.dataset.character, this)">${optionsHtml}</select>
+      </div>`;
+    }
+  }
+
+  html += `</div></div>`;
+  return html;
+}
+
+function applyCharacterVoice(characterName, selectEl) {
+  const val = selectEl.value;
+  let voiceConfig = null;
+
+  if (val.startsWith("preset:")) {
+    const speaker = val.slice(7);
+    const speakerSelect = document.getElementById("speaker");
+    let label = speaker;
+    if (speakerSelect) {
+      for (const opt of speakerSelect.options) {
+        if (opt.value === speaker) { label = opt.text; break; }
+      }
+    }
+    voiceConfig = { type: "preset", speaker, label };
+  } else if (val.startsWith("saved:")) {
+    const voiceId = val.slice(6);
+    const voice = savedVoices.find(v => v.id === voiceId);
+    voiceConfig = { type: "saved_voice", voice_id: voiceId, label: voice ? voice.name : voiceId };
+  }
+
+  characterVoiceMap[characterName] = voiceConfig;
+
+  // 批量更新该角色所有句子的 voiceConfigs
+  for (let i = 0; i < sentenceCharacters.length; i++) {
+    if (sentenceCharacters[i] === characterName) {
+      sentenceVoiceConfigs[i] = voiceConfig;
+      // 如果切到非 preset，清空 instruct
+      if (voiceConfig && voiceConfig.type !== "preset") {
+        sentenceInstructs[i] = "";
+      }
+    }
+  }
+
+  saveSession();
+  showSentenceEditorView();
 }
 
 // HTML 转义

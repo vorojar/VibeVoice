@@ -19,6 +19,8 @@ function stopGeneration() {
   sentenceInstructs = [];
   sentenceVoiceConfigs = [];
   sentenceParagraphBreaks = [];
+  sentenceCharacters = [];
+  characterVoiceMap = {};
   decodedPcmCache = [];
   selectedSentenceIndex = -1;
   undoStack = [];
@@ -410,6 +412,8 @@ async function generate() {
   sentenceInstructs = [];
   sentenceVoiceConfigs = [];
   sentenceParagraphBreaks = [];
+  sentenceCharacters = [];
+  characterVoiceMap = {};
   decodedPcmCache = [];
   selectedSentenceIndex = -1;
   clonePromptId = null;
@@ -417,7 +421,12 @@ async function generate() {
   clearSession(); // 清除持久化
 
   // 确保模型加载
-  const modelType = currentMode === "preset" ? "custom" : currentMode;
+  const modelType =
+    currentMode === "preset"
+      ? "custom"
+      : currentMode === "design"
+        ? "design"
+        : currentMode;
   const modelReady = await ensureModelLoaded(modelType);
   if (!modelReady) {
     hideProgressView();
@@ -556,6 +565,46 @@ async function generate() {
       btn.disabled = false;
       btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t("btn.previewSentences")}</span>`;
       return;
+    } else if (currentMode === "design") {
+      const desc = document.getElementById("voice-desc-gen").value.trim();
+      const language = document.getElementById("language-design-gen").value;
+      if (!desc) {
+        statusEl.textContent = t("status.needDesc");
+        btn.disabled = false;
+        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t("btn.previewSentences")}</span>`;
+        return;
+      }
+
+      lastGenerateParams = { mode: "design", language, instruct: desc };
+
+      const params = new URLSearchParams({ text, language, instruct: desc });
+      const result = await generateWithProgress(
+        `/design/progress?${params.toString()}`,
+        btn,
+        statusEl,
+      );
+      if (!result) return;
+
+      audioElement.src = result.audioUrl;
+      stats = result.stats;
+
+      loadWaveform();
+      audioElement.play();
+      document.getElementById("player-section").classList.remove("hidden");
+
+      if (stats) {
+        lastStatsData = stats;
+        renderStats();
+      }
+
+      if (sentenceTexts.length <= 1) {
+        statusEl.innerHTML = `<span class="text-green-600">${t("status.success")}</span>`;
+      }
+
+      saveToHistory(text, "design");
+      btn.disabled = false;
+      btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg><span>${t("btn.previewSentences")}</span>`;
+      return;
     }
   } catch (error) {
     statusEl.innerHTML = `<span class="text-red-600">${t("status.failed")}: ${error.message}</span>`;
@@ -591,6 +640,12 @@ function buildLastGenerateParams() {
         clone_prompt_id: clonePromptId || null,
       };
     }
+  } else if (currentMode === "design") {
+    lastGenerateParams = {
+      mode: "design",
+      language: document.getElementById("language-design-gen").value,
+      instruct: document.getElementById("voice-desc-gen").value.trim(),
+    };
   }
 }
 
@@ -614,6 +669,7 @@ async function generateMixedVoices(texts, instructs, voiceConfigs) {
       lastGenerateParams.mode === "clone"
     )
       modelsNeeded.add("clone");
+    else if (lastGenerateParams.mode === "design") modelsNeeded.add("design");
   }
 
   for (const modelType of modelsNeeded) {
@@ -748,34 +804,49 @@ async function generateFromPreview() {
   const editedTexts = [...sentenceTexts];
   const editedInstructs = [...sentenceInstructs];
   const editedVoiceConfigs = [...sentenceVoiceConfigs];
+  const editedCharacters = [...sentenceCharacters];
+  const editedCharacterVoiceMap = { ...characterVoiceMap };
   document.getElementById("text-input").value = joinSentencesWithParagraphs();
 
   // 退出预编辑状态
   isPreviewing = false;
 
-  // 检查是否有逐句声音覆盖
+  // 检查是否有逐句声音覆盖或角色分析结果（分析后走混合路径以应用逐句情感）
   const hasVoiceOverrides = editedVoiceConfigs.some((c) => c !== null);
-  if (hasVoiceOverrides) {
+  const hasCharacterAnalysis = editedCharacters.length > 0;
+  if (hasVoiceOverrides || hasCharacterAnalysis) {
     // 构建默认参数
     buildLastGenerateParams();
     // 走混合声音生成（逐句调 /regenerate）
     await generateMixedVoices(editedTexts, editedInstructs, editedVoiceConfigs);
+    // 恢复角色数据（generateMixedVoices 不会清除，但确保一致）
+    if (sentenceTexts.length === editedCharacters.length) {
+      sentenceCharacters = editedCharacters;
+      characterVoiceMap = editedCharacterVoiceMap;
+      saveSession();
+      showSentenceEditorView();
+    }
     return;
   }
 
-  // 无覆盖，走原有批量生成流程
+  // 无覆盖也无分析，走原有批量生成流程
   await generate();
 
   // generate() 正常完成时 sentenceAudios 已填充
   if (sentenceAudios.length > 0 && sentenceTexts.length > 0) {
-    // 生成成功：恢复编辑后的 instructs 和 voiceConfigs
+    // 生成成功：恢复编辑后的 instructs、voiceConfigs、角色数据
     if (sentenceTexts.length === editedInstructs.length) {
       sentenceInstructs = editedInstructs;
     }
     if (sentenceTexts.length === editedVoiceConfigs.length) {
       sentenceVoiceConfigs = editedVoiceConfigs;
     }
+    if (sentenceTexts.length === editedCharacters.length) {
+      sentenceCharacters = editedCharacters;
+      characterVoiceMap = editedCharacterVoiceMap;
+    }
     saveSession();
+    showSentenceEditorView(); // 重新渲染以显示恢复的角色数据
   } else {
     // 验证失败或模型加载失败，确保回到 textarea 视图
     const textInput = document.getElementById("text-input");

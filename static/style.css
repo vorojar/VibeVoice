@@ -318,6 +318,20 @@ select.input-field {
   background: white;
   color: #2d3748;
 }
+.sentence-voice-tag.readonly,
+.sentence-instruct-tag.readonly {
+  cursor: default;
+  opacity: 0.7;
+}
+.sentence-voice-tag.readonly:hover,
+.sentence-instruct-tag.readonly:hover {
+  color: inherit;
+}
+.character-voice-label {
+  font-size: 11px;
+  color: #a0aec0;
+  font-style: italic;
+}
 .sentence-editor-text[contenteditable="true"] {
   background: white;
   border: 1px solid #e07a5f;
@@ -497,6 +511,104 @@ select.input-field {
 .sentence-new-btn:hover {
   border-color: #e07a5f;
   color: #e07a5f;
+}
+
+/* 智能分析按钮 */
+.analyze-btn-style {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white !important;
+  border-color: #667eea !important;
+}
+.analyze-btn-style:hover {
+  background: linear-gradient(135deg, #5a6fd6 0%, #6a4292 100%);
+  color: white !important;
+}
+.analyze-btn-style:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 角色清单面板 */
+.character-panel {
+  background: #f7f5ff;
+  border: 1px solid #e2d9f3;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.character-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.character-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #553c9a;
+}
+.character-panel-actions button {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid #d6bcfa;
+  border-radius: 4px;
+  background: white;
+  color: #805ad5;
+  cursor: pointer;
+}
+.character-panel-actions button:hover {
+  background: #f0e6ff;
+}
+.character-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.character-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #e8e0f0;
+}
+.character-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #553c9a;
+  min-width: 50px;
+}
+.character-count {
+  font-size: 11px;
+  color: #a0aec0;
+  white-space: nowrap;
+}
+.character-voice-select {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  border: 1px solid #d6bcfa;
+  border-radius: 4px;
+  padding: 2px 4px;
+  background: white;
+  color: #4a5568;
+  outline: none;
+}
+.character-voice-select:focus {
+  border-color: #805ad5;
+}
+
+/* 句子角色标签 */
+.sentence-character-tag {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #f0e6ff;
+  color: #805ad5;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 /* 预编辑模式：删除按钮始终可见 */

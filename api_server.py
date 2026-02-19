@@ -62,6 +62,8 @@ VOICES_DIR.mkdir(exist_ok=True)
 model_custom = None  # CustomVoice 模型
 model_clone = None   # Base 模型（用于语音克隆）
 model_design = None  # VoiceDesign 模型
+model_analyzer = None  # Qwen3-4B 文本分析模型
+analyzer_tokenizer = None
 SAMPLE_RATE = 24000
 
 # 模型加载状态: unloaded / loading / loaded
@@ -69,6 +71,7 @@ model_status = {
     "custom": "unloaded",
     "design": "unloaded",
     "clone": "unloaded",
+    "analyzer": "unloaded",
 }
 
 # 模型配置
@@ -84,6 +87,10 @@ MODEL_CONFIGS = {
     "clone": {
         "path": "./models/Qwen3-TTS-0.6B",
         "name": "Base 0.6B",
+    },
+    "analyzer": {
+        "path": "./models/Qwen3-4B",
+        "name": "Qwen3-4B Analyzer",
     },
 }
 
@@ -178,6 +185,21 @@ SPEAKERS = ["aiden", "dylan", "eric", "ono_anna", "ryan", "serena", "sohee", "un
 LANGUAGES = ["Chinese", "English", "Japanese", "Korean", "German", "French", "Russian", "Portuguese", "Spanish", "Italian"]
 
 
+VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".m4v"}
+
+def extract_audio_from_video(video_path: str) -> str:
+    """从视频文件中提取音频，返回临时 WAV 文件路径"""
+    import subprocess
+    audio_path = video_path.rsplit(".", 1)[0] + "_audio.wav"
+    result = subprocess.run(
+        ["ffmpeg", "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "24000", "-ac", "1", "-y", audio_path],
+        capture_output=True, timeout=60,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg 提取音频失败: {result.stderr.decode(errors='ignore')[:200]}")
+    return audio_path
+
+
 def get_device_config():
     """自动检测最佳设备和数据类型"""
     _ensure_torch()
@@ -191,7 +213,7 @@ def get_device_config():
 
 def load_model_sync(model_type: str):
     """同步加载指定模型"""
-    global model_custom, model_clone, model_design, model_status
+    global model_custom, model_clone, model_design, model_analyzer, analyzer_tokenizer, model_status
 
     if model_status[model_type] != "unloaded":
         return
@@ -200,22 +222,35 @@ def load_model_sync(model_type: str):
     config = MODEL_CONFIGS[model_type]
 
     try:
-        _ensure_qwen_tts()
+        _ensure_torch()
         device_map, dtype = get_device_config()
         print(f"正在加载 {config['name']} 模型... (设备: {device_map}, 精度: {dtype})")
 
-        model = Qwen3TTSModel.from_pretrained(
-            config["path"],
-            device_map=device_map,
-            dtype=dtype,
-        )
-
-        if model_type == "custom":
-            model_custom = model
-        elif model_type == "design":
-            model_design = model
-        elif model_type == "clone":
-            model_clone = model
+        if model_type == "analyzer":
+            from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+            analyzer_tokenizer = AutoTokenizer.from_pretrained(config["path"])
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=dtype,
+            )
+            model_analyzer = AutoModelForCausalLM.from_pretrained(
+                config["path"],
+                quantization_config=quantization_config,
+                device_map=device_map,
+            )
+        else:
+            _ensure_qwen_tts()
+            model = Qwen3TTSModel.from_pretrained(
+                config["path"],
+                device_map=device_map,
+                dtype=dtype,
+            )
+            if model_type == "custom":
+                model_custom = model
+            elif model_type == "design":
+                model_design = model
+            elif model_type == "clone":
+                model_clone = model
 
         model_status[model_type] = "loaded"
         print(f"{config['name']} 模型加载完成！")
@@ -710,10 +745,16 @@ async def voice_clone(
         audio_content = await audio.read()
 
         # 保存到临时文件
-        suffix = Path(audio.filename).suffix if audio.filename else ".wav"
+        suffix = Path(audio.filename).suffix.lower() if audio.filename else ".wav"
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
         temp_file.write(audio_content)
         temp_file.close()
+
+        # 视频文件 → 提取音频
+        if suffix in VIDEO_EXTENSIONS:
+            extracted = extract_audio_from_video(temp_file.name)
+            os.unlink(temp_file.name)
+            temp_file = type('', (), {'name': extracted})()  # 替换为提取后的路径
 
         # 生成语音
         # 如果没有提供参考文本，使用 x_vector_only_mode
@@ -779,11 +820,16 @@ async def voice_clone_progress(
 
     # 保存上传的音频到临时文件
     audio_content = await audio.read()
-    suffix = Path(audio.filename).suffix if audio.filename else ".wav"
+    suffix = Path(audio.filename).suffix.lower() if audio.filename else ".wav"
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     temp_file.write(audio_content)
     temp_file.close()
     temp_path = temp_file.name
+
+    # 视频文件 → 提取音频
+    if suffix in VIDEO_EXTENSIONS:
+        temp_path = extract_audio_from_video(temp_path)
+        os.unlink(temp_file.name)
 
     async def generate_with_progress():
         completed = 0
@@ -1530,10 +1576,22 @@ async def save_voice(
     try:
         # 保存音频文件
         audio_content = await audio.read()
-        suffix = Path(audio.filename).suffix if audio.filename else ".wav"
-        audio_path = voice_dir / f"reference{suffix}"
-        with open(audio_path, "wb") as f:
-            f.write(audio_content)
+        suffix = Path(audio.filename).suffix.lower() if audio.filename else ".wav"
+
+        # 视频文件 → 提取音频后保存为 WAV
+        if suffix in VIDEO_EXTENSIONS:
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+            tmp.write(audio_content)
+            tmp.close()
+            extracted = extract_audio_from_video(tmp.name)
+            os.unlink(tmp.name)
+            audio_path = voice_dir / "reference.wav"
+            shutil.move(extracted, str(audio_path))
+            suffix = ".wav"
+        else:
+            audio_path = voice_dir / f"reference{suffix}"
+            with open(audio_path, "wb") as f:
+                f.write(audio_content)
 
         # 保存元数据
         meta = {
@@ -1852,6 +1910,102 @@ async def preview_saved_voice(voice_id: str):
         raise HTTPException(status_code=404, detail="参考音频文件不存在")
 
     return FileResponse(audio_path, media_type="audio/wav")
+
+
+def analyze_text_with_model(sentences: list) -> dict:
+    """使用 Qwen3-4B 分析文本的角色和情感"""
+    import re as _re
+
+    numbered = "\n".join(f"{i+1}. {s}" for i, s in enumerate(sentences))
+
+    prompt = f"""你是有声书分析助手。分析下面的句子，识别每句的说话角色和语音情感。
+
+规则：
+1. 叙述、描写、旁白内容，角色标记为"旁白"
+2. 对话内容，识别说话角色的名字
+3. emotion 是简短的语音情感指令（2-6个字），适合TTS朗读，例如：平静叙述、愤怒地、温柔地、兴奋地、悲伤低语、冷笑、紧张地
+4. 无法确定角色时标记为"旁白"
+
+句子列表：
+{numbered}
+
+严格按以下JSON格式输出，不要输出任何其他内容：
+{{"characters":["角色1","角色2"],"sentences":[{{"index":0,"character":"角色名","emotion":"情感"}},...]}}"""
+
+    messages = [{"role": "user", "content": prompt}]
+
+    try:
+        text = analyzer_tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+    except TypeError:
+        text = analyzer_tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+
+    inputs = analyzer_tokenizer(text, return_tensors="pt").to(model_analyzer.device)
+
+    # 动态计算 token 上限：每句约 60 token（角色名+情感+JSON结构）
+    max_tokens = min(100 + len(sentences) * 60, 2048)
+
+    with torch.no_grad():
+        outputs = model_analyzer.generate(
+            **inputs,
+            max_new_tokens=max_tokens,
+            do_sample=False,
+        )
+
+    generated = outputs[0][inputs["input_ids"].shape[1]:]
+    response = analyzer_tokenizer.decode(generated, skip_special_tokens=True)
+
+    # 去掉思考标签（若模型仍输出）
+    if "</think>" in response:
+        response = response.split("</think>")[-1].strip()
+
+    # 从响应中提取JSON
+    json_match = _re.search(r'\{.*\}', response, _re.DOTALL)
+    if json_match:
+        result = json.loads(json_match.group())
+        if "characters" in result and "sentences" in result:
+            return result
+
+    raise ValueError(f"解析分析结果失败: {response[:500]}")
+
+
+@app.post("/analyze-text")
+async def analyze_text_endpoint(request: Request):
+    """
+    分析文本角色和情感
+
+    接收句子列表，返回角色清单和每句的角色/情感标注
+    """
+    if model_status["analyzer"] != "loaded":
+        raise HTTPException(status_code=503, detail={
+            "error": "model_not_loaded",
+            "model": "analyzer",
+            "status": model_status["analyzer"],
+        })
+
+    body = await request.json()
+    sentences = body.get("sentences", [])
+    if not sentences:
+        raise HTTPException(status_code=400, detail="句子列表不能为空")
+
+    try:
+        print(f"[分析] 开始分析 {len(sentences)} 句文本...")
+        start_time = time.time()
+        result = analyze_text_with_model(sentences)
+        elapsed = time.time() - start_time
+        print(f"[分析] 完成: {elapsed:.2f}s, 识别 {len(result.get('characters', []))} 个角色")
+        return JSONResponse(result)
+    except Exception as e:
+        print(f"[分析] 失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
