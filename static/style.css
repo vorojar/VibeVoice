@@ -318,6 +318,42 @@ select.input-field {
   background: white;
   color: #2d3748;
 }
+.sentence-speed-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #a0aec0;
+  cursor: pointer;
+  margin-top: 1px;
+}
+.sentence-speed-tag:hover {
+  color: #38a169;
+}
+.sentence-speed-edit {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.sentence-speed-tag:hover .sentence-speed-edit {
+  opacity: 1;
+}
+.sentence-speed-value {
+  font-style: italic;
+}
+.sentence-speed-value.speed-override {
+  color: #38a169;
+  font-weight: 500;
+}
+.sentence-speed-select {
+  flex: 1;
+  font-size: 11px;
+  border: 1px solid #38a169;
+  border-radius: 3px;
+  padding: 1px 4px;
+  outline: none;
+  background: white;
+  color: #2d3748;
+}
 .sentence-editor-text[contenteditable="true"] {
   background: white;
   border: 1px solid #e07a5f;

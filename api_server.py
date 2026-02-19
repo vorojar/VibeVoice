@@ -445,6 +445,19 @@ def split_text_to_paragraphs(text: str, max_chars: int = 300) -> list:
     return paragraphs
 
 
+def adjust_audio_speed(audio, sr: int, speed_rate: float):
+    """
+    调整音频语速（保持音高不变）
+
+    - speed_rate > 1.0: 加速（时长缩短）
+    - speed_rate < 1.0: 减速（时长拉长）
+    - speed_rate == 1.0: 不处理
+    """
+    if abs(speed_rate - 1.0) < 0.01:
+        return audio
+    import librosa
+    return librosa.effects.time_stretch(audio, rate=speed_rate)
+
 
 @app.get("/tts/stream")
 async def tts_stream(
@@ -1194,6 +1207,49 @@ async def voice_design_progress(
     )
 
 
+@app.post("/speed-adjust")
+async def speed_adjust(
+    audio_base64: str = Form(..., description="base64 编码的 WAV 音频"),
+    speed_rate: float = Form(..., description="语速倍率 (0.5~2.0)"),
+):
+    """
+    调整音频语速（无需重新生成）
+
+    接收 base64 WAV → 解码 → time_stretch → 编码回 base64 返回
+    """
+    import base64
+
+    if speed_rate < 0.5 or speed_rate > 2.0:
+        raise HTTPException(status_code=400, detail="speed_rate 必须在 0.5~2.0 范围内")
+
+    try:
+        # 解码 base64 WAV
+        audio_bytes = base64.b64decode(audio_base64)
+        audio_buf = io.BytesIO(audio_bytes)
+        audio_data, sr = sf.read(audio_buf)
+
+        # 调整语速
+        adjusted = adjust_audio_speed(audio_data, sr, speed_rate)
+
+        # 编码回 base64
+        out_buf = io.BytesIO()
+        sf.write(out_buf, adjusted, sr, format='WAV')
+        out_buf.seek(0)
+        result_b64 = base64.b64encode(out_buf.read()).decode('utf-8')
+
+        return JSONResponse({
+            "audio": result_b64,
+            "sample_rate": sr,
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/regenerate")
 async def regenerate_sentence(
     sentence_text: str = Form(..., description="新的句子文本"),
@@ -1203,6 +1259,7 @@ async def regenerate_sentence(
     instruct: str = Form(None, description="情感指令（preset 模式）或声音描述（design 模式）"),
     voice_id: str = Form(None, description="声音库 ID（saved_voice 模式）"),
     clone_prompt_id: str = Form(None, description="克隆会话 ID（clone 模式）"),
+    speed_rate: float = Form(1.0, description="语速倍率 (0.5~2.0)"),
 ):
     """
     单句重新生成
@@ -1280,9 +1337,12 @@ async def regenerate_sentence(
         elapsed = time.time() - start_time
         print(f"[重新生成] 完成: {elapsed:.2f}s")
 
+        # 应用语速调整
+        audio_out = adjust_audio_speed(wavs[0], sr, speed_rate)
+
         # 编码新句音频为 base64
         new_sent_buf = io.BytesIO()
-        sf.write(new_sent_buf, wavs[0], sr, format='WAV')
+        sf.write(new_sent_buf, audio_out, sr, format='WAV')
         new_sent_buf.seek(0)
         new_audio_b64 = base64.b64encode(new_sent_buf.read()).decode('utf-8')
 

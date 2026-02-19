@@ -18,6 +18,7 @@ let sentenceTexts = []; // 每句文本数组
 let sentenceInstructs = []; // 每句情感指令（仅 preset 模式有意义）
 let sentenceVoiceConfigs = []; // 每句声音配置（null=默认，{type,speaker/voice_id,label}=覆盖）
 let sentenceParagraphBreaks = []; // 段落边界标记：true=该句是段落开头
+let sentenceSpeedRates = []; // 每句语速倍率（默认 1.0，范围 0.5~2.0）
 let lastGenerateParams = null; // {mode, speaker, language, instruct, voice_id, clone_prompt_id}
 let clonePromptId = null; // clone 模式的 session ID
 
@@ -169,6 +170,7 @@ async function saveSession() {
         sentenceTexts,
         sentenceInstructs,
         sentenceVoiceConfigs,
+        sentenceSpeedRates,
         lastGenerateParams,
         clonePromptId,
         currentSubtitles,
@@ -230,6 +232,8 @@ async function restoreSession() {
     sentenceTexts.map(() => lastGenerateParams?.instruct || "");
   sentenceVoiceConfigs =
     session.sentenceVoiceConfigs || sentenceTexts.map(() => null);
+  sentenceSpeedRates =
+    session.sentenceSpeedRates || sentenceTexts.map(() => 1.0);
   clonePromptId = session.clonePromptId;
   currentSubtitles = session.currentSubtitles;
   pausePaceMultiplier = session.pausePaceMultiplier ?? 1.0;

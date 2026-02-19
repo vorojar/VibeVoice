@@ -19,6 +19,7 @@ function stopGeneration() {
   sentenceInstructs = [];
   sentenceVoiceConfigs = [];
   sentenceParagraphBreaks = [];
+  sentenceSpeedRates = [];
   decodedPcmCache = [];
   selectedSentenceIndex = -1;
   undoStack = [];
@@ -53,6 +54,7 @@ async function regenerateSentence(index) {
     text: sentenceTexts[index],
     instruct: sentenceInstructs[index],
     voiceConfig: sentenceVoiceConfigs[index],
+    speedRate: sentenceSpeedRates[index],
   });
 
   const text = sentenceTexts[index];
@@ -103,6 +105,9 @@ async function regenerateSentence(index) {
       if (lastGenerateParams.clone_prompt_id)
         formData.append("clone_prompt_id", lastGenerateParams.clone_prompt_id);
     }
+
+    // 语速
+    formData.append("speed_rate", sentenceSpeedRates[index] ?? 1.0);
 
     const response = await fetch("/regenerate", {
       method: "POST",
@@ -212,6 +217,7 @@ async function generateWithProgress(url, btn, statusEl) {
               () => lastGenerateParams?.instruct || "",
             );
             sentenceVoiceConfigs = sentenceTexts.map(() => null);
+            sentenceSpeedRates = sentenceTexts.map(() => 1.0);
           }
           if (data.clone_prompt_id) {
             clonePromptId = data.clone_prompt_id;
@@ -332,6 +338,7 @@ async function generateWithProgressPost(url, formData, btn, statusEl) {
                   () => lastGenerateParams?.instruct || "",
                 );
                 sentenceVoiceConfigs = sentenceTexts.map(() => null);
+                sentenceSpeedRates = sentenceTexts.map(() => 1.0);
               }
               if (data.clone_prompt_id) {
                 clonePromptId = data.clone_prompt_id;
@@ -410,6 +417,7 @@ async function generate() {
   sentenceInstructs = [];
   sentenceVoiceConfigs = [];
   sentenceParagraphBreaks = [];
+  sentenceSpeedRates = [];
   decodedPcmCache = [];
   selectedSentenceIndex = -1;
   clonePromptId = null;
@@ -631,6 +639,9 @@ async function generateMixedVoices(texts, instructs, voiceConfigs) {
   sentenceInstructs = instructs;
   sentenceVoiceConfigs = voiceConfigs;
   sentenceAudios = new Array(texts.length).fill(null);
+  if (sentenceSpeedRates.length !== texts.length) {
+    sentenceSpeedRates = new Array(texts.length).fill(1.0);
+  }
   decodedPcmCache = [];
   generatingProgress = 0;
 
@@ -688,6 +699,9 @@ async function generateMixedVoices(texts, instructs, voiceConfigs) {
             lastGenerateParams.clone_prompt_id,
           );
       }
+
+      // 语速
+      formData.append("speed_rate", sentenceSpeedRates[i] ?? 1.0);
 
       const response = await fetch("/regenerate", {
         method: "POST",
