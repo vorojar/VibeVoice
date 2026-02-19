@@ -79,6 +79,9 @@ function rebuildAudioAndSubtitles() {
 
 // 解码 base64 WAV 为 PCM samples（Int16Array）和采样率
 function decodeBase64Wav(b64) {
+  if (!b64) {
+    return { samples: new Int16Array(0), sampleRate: 24000, numChannels: 1 };
+  }
   const binaryString = atob(b64);
   const len = binaryString.length;
   const bytes = new Uint8Array(len);
@@ -331,6 +334,9 @@ function formatVttTime(seconds) {
 
 // 解析 WAV 文件
 function parseWav(arrayBuffer) {
+  if (!arrayBuffer || arrayBuffer.byteLength < 44) {
+    return { samples: new Int16Array(0), sampleRate: 24000, numChannels: 1 };
+  }
   const dataView = new DataView(arrayBuffer);
 
   // 读取 WAV 头信息

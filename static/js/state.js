@@ -248,10 +248,17 @@ async function restoreSession() {
     updateCharCount();
   }
   // 重建音频
-  const merged = mergeAllSentenceAudios();
-  currentSubtitles = merged.subtitles;
-  audioElement.src = URL.createObjectURL(merged.blob);
-  loadWaveform();
+  try {
+    const merged = mergeAllSentenceAudios();
+    currentSubtitles = merged.subtitles;
+    audioElement.src = URL.createObjectURL(merged.blob);
+    loadWaveform();
+  } catch (e) {
+    console.warn("Session audio restore failed, clearing audio data:", e);
+    sentenceAudios = [];
+    decodedPcmCache = [];
+    currentSubtitles = null;
+  }
   // 恢复 stats 显示
   if (session.statsData) {
     lastStatsData = session.statsData;
