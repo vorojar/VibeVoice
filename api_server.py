@@ -11,6 +11,15 @@ import soundfile as sf
 import numpy as np
 from pathlib import Path
 import shutil
+from wetext import Normalizer as _WeTextNormalizer
+
+_zh_normalizer = _WeTextNormalizer()
+
+def normalize_for_tts(text):
+    """中文文本正规化：数字/日期/货币/百分比 → 口语形式（TTS 友好）"""
+    if isinstance(text, list):
+        return [_zh_normalizer.normalize(t) for t in text]
+    return _zh_normalizer.normalize(text)
 
 # 延迟导入：torch 和 qwen_tts 启动开销大，首次使用时才加载
 torch = None
@@ -31,8 +40,10 @@ def _ensure_qwen_tts():
 
 
 def _inference_call(fn, *args, **kwargs):
-    """在 torch.inference_mode 下调用推理函数（比 no_grad 更快）"""
+    """在 torch.inference_mode 下调用推理函数（比 no_grad 更快），自动正规化 text 参数"""
     _ensure_torch()
+    if 'text' in kwargs and kwargs['text'] is not None:
+        kwargs['text'] = normalize_for_tts(kwargs['text'])
     with torch.inference_mode():
         return fn(*args, **kwargs)
 
