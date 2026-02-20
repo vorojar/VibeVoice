@@ -11,15 +11,94 @@ import soundfile as sf
 import numpy as np
 from pathlib import Path
 import shutil
-from wetext import Normalizer as _WeTextNormalizer
-
-_zh_normalizer = _WeTextNormalizer()
+try:
+    from wetext import Normalizer as _WeTextNormalizer
+    _zh_normalizer = _WeTextNormalizer()
+except ImportError:
+    _zh_normalizer = None
 
 def normalize_for_tts(text):
     """中文文本正规化：数字/日期/货币/百分比 → 口语形式（TTS 友好）"""
+    if _zh_normalizer is None:
+        return text
     if isinstance(text, list):
         return [_zh_normalizer.normalize(t) for t in text]
     return _zh_normalizer.normalize(text)
+
+# ===== Silero VAD：去除音频首尾静音 =====
+_vad_model = None
+
+def trim_audio_silence(audio_np, sample_rate=24000, pad_ms=50, max_silence_ms=300):
+    """
+    音频静音清洗（Silero VAD）：
+    1. 去除首尾静音
+    2. 压缩中间过长停顿（超过 max_silence_ms 的静音段截短）
+    """
+    global _vad_model
+    if len(audio_np) < sample_rate * 0.1:  # 短于 0.1 秒，跳过
+        return audio_np
+    try:
+        if _vad_model is None:
+            from silero_vad import load_silero_vad
+            _vad_model = load_silero_vad()
+        from silero_vad import get_speech_timestamps
+
+        # 重采样到 16kHz（VAD 仅支持 8k/16k，24k 不是 16k 的整数倍需插值）
+        VAD_SR = 16000
+        target_len = int(len(audio_np) * VAD_SR / sample_rate)
+        audio_16k = np.interp(
+            np.linspace(0, len(audio_np) - 1, target_len),
+            np.arange(len(audio_np)),
+            audio_np,
+        ).astype(np.float32)
+
+        timestamps = get_speech_timestamps(
+            audio_16k, _vad_model,
+            sampling_rate=VAD_SR,
+            threshold=0.5,
+            min_speech_duration_ms=100,
+            speech_pad_ms=pad_ms,
+        )
+
+        if not timestamps:
+            return audio_np  # 未检测到语音，原样返回
+
+        # 映射回原采样率
+        scale = sample_rate / VAD_SR
+        max_gap = int(max_silence_ms * sample_rate / 1000)
+
+        chunks = []
+        for i, ts in enumerate(timestamps):
+            seg_start = max(0, int(ts['start'] * scale))
+            seg_end = min(len(audio_np), int(ts['end'] * scale))
+
+            # 语音段之间的静音：保留但不超过 max_silence_ms
+            if i > 0:
+                prev_end = min(len(audio_np), int(timestamps[i - 1]['end'] * scale))
+                gap = seg_start - prev_end
+                if gap > max_gap:
+                    chunks.append(audio_np[prev_end:prev_end + max_gap])
+                elif gap > 0:
+                    chunks.append(audio_np[prev_end:seg_start])
+
+            chunks.append(audio_np[seg_start:seg_end])
+
+        return np.concatenate(chunks) if chunks else audio_np
+    except Exception:
+        return audio_np  # VAD 失败时不影响正常流程
+
+def clean_audio_file(audio_path):
+    """清洗音频文件：去除首尾静音 + 压缩中间过长停顿，原地覆写"""
+    try:
+        audio_np, sr = sf.read(audio_path)
+        if len(audio_np.shape) > 1:
+            audio_np = audio_np[:, 0]  # 转单声道
+        cleaned = trim_audio_silence(audio_np, sr)
+        if len(cleaned) < len(audio_np):
+            sf.write(audio_path, cleaned, sr, format='WAV')
+            print(f"[VAD] 清洗参考音频: {len(audio_np)/sr:.1f}s → {len(cleaned)/sr:.1f}s")
+    except Exception as e:
+        print(f"[VAD] 清洗失败，使用原音频: {e}")
 
 # 延迟导入：torch 和 qwen_tts 启动开销大，首次使用时才加载
 torch = None
@@ -814,6 +893,9 @@ async def voice_clone(
             os.unlink(temp_file.name)
             temp_file = type('', (), {'name': extracted})()  # 替换为提取后的路径
 
+        # VAD 清洗参考音频
+        clean_audio_file(temp_file.name)
+
         # 生成语音
         # 如果没有提供参考文本，使用 x_vector_only_mode
         print(f"[克隆] 开始生成: {len(text)} 字 | 语言: {language}")
@@ -889,6 +971,9 @@ async def voice_clone_progress(
     if suffix in VIDEO_EXTENSIONS:
         temp_path = extract_audio_from_video(temp_path)
         os.unlink(temp_file.name)
+
+    # VAD 清洗参考音频
+    clean_audio_file(temp_path)
 
     async def generate_with_progress():
         completed = 0
@@ -1724,6 +1809,9 @@ async def save_voice(
             audio_path = voice_dir / f"reference{suffix}"
             with open(audio_path, "wb") as f:
                 f.write(audio_content)
+
+        # VAD 清洗参考音频
+        clean_audio_file(str(audio_path))
 
         # 保存元数据
         meta = {
